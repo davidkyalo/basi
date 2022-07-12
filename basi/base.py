@@ -10,6 +10,7 @@ from basi._common import import_string
 class Task(BaseTask):
 
     request: Context
+    app: 'Bus'
 
     def __call__(self, *args, **kwargs):
         return super().__call__(*args, **kwargs)
