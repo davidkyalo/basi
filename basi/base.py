@@ -1,5 +1,5 @@
 from functools import cache
-from typing import Literal, Union
+from typing import TYPE_CHECKING, Literal, Union
 from celery import Celery, Task as BaseTask
 from celery.app.base import gen_task_name
 
@@ -14,6 +14,9 @@ class Task(BaseTask):
 
 
 class Bus(Celery):
+
+    workspace_prefix_separator: str = ':'
+
     def __init__(
         self,
         main=None,
@@ -34,6 +37,7 @@ class Bus(Celery):
         autofinalize=True,
         namespace=None,
         strict_typing=True,
+        workspace_prefix_separator=None,
         **kwargs,
     ):
         if isinstance(task_cls, str):
@@ -59,29 +63,34 @@ class Bus(Celery):
             strict_typing,
             **kwargs,
         )
+        if not workspace_prefix_separator is None:
+            self.workspace_prefix_separator: str = workspace_prefix_separator
 
     @property
     @cache
     def workspace(self) -> Union[str, None]:
         return self.conf.get('workspace')
 
-    @property
     @cache
-    def workspace_prefix(self) -> Union[str, None]:
-        if ws := self.workspace:
-            return f"{ws}{self.conf.get('workspace_prefix_separator', ':')}"
+    def get_workspace_prefix(self) -> Union[str, None]:
+        if workspace := self.workspace:
+            return f"{workspace}{self.workspace_prefix_separator}"
         return ''
 
     def gen_task_name(self, name, module):
-        return f"{self.workspace_prefix}{self.task_name_generator()(self, name, module)}"
+        return f"{self.get_workspace_prefix()}{self.get_task_name_func()(self, name, module)}"
 
     @cache
-    def task_name_generator(self):
+    def get_task_name_func(self):
         if fn := self.conf.get("task_name_generator"):
             if isinstance(fn, str):
                 fn = self.conf["task_name_generator"] = import_string(fn)
             return fn
         return gen_task_name
+
+    if TYPE_CHECKING:
+        def task(self, *args, **opts) -> Task:
+            ...
 
 
 Celery = Bus

@@ -1,12 +1,13 @@
+import os
 from types import ModuleType
 from typing import Optional
 from django.apps import AppConfig
+from .django import _init_settings, autodiscover_app_tasks
 
-from .django import configure, autodiscover_app_tasks
-
-from . import get_current_app
+from . import get_current_app, SETTINGS_ENVVAR
 
 
+os.environ.setdefault(SETTINGS_ENVVAR, 'django.conf:settings')
 
 
 class BasiConfig(AppConfig):
@@ -16,7 +17,7 @@ class BasiConfig(AppConfig):
 
     def __init__(self, app_name: str, app_module: Optional[ModuleType]) -> None:
         super().__init__(app_name, app_module)
-        configure(get_current_app())
+        _init_settings()
 
     def ready(self) -> None:
         autodiscover_app_tasks(get_current_app())
