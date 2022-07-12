@@ -1,0 +1,74 @@
+site_name: Basi
+theme:
+  name: material
+  custom_dir: docs/override
+  features:
+    - toc.follow
+    - navigation.instant
+    - navigation.tracking
+    - navigation.top
+    # - navigation.indexes
+    # - navigation.expand
+    # - navigation.sections
+
+
+repo_name: davidkyalo/basi
+repo_url: https://github.com/davidkyalo/basi
+edit_uri: "blob/master/docs/"
+
+use_directory_urls: false
+
+markdown_extensions:
+  - admonition
+  - pymdownx.details
+  - pymdownx.highlight
+  - attr_list
+  - md_in_html
+  - def_list
+  - toc:
+      permalink: True
+  - pymdownx.snippets:
+      base_path: .
+  - pymdownx.tasklist:
+      custom_checkbox: true
+  - pymdownx.superfences:
+      custom_fences:
+        - name: mermaid
+          class: mermaid
+          format: !!python/name:pymdownx.superfences.fence_code_format
+
+extra:
+  analytics:
+    provider: google
+    property: G-TMB4GDY4Y7
+  version:
+    provider: mike
+
+plugins:
+  - mike:
+      version_selector: true
+      css_dir: css             # the directory to put the version selector's CSS
+      javascript_dir: js       # the directory to put the version selector's JS
+      canonical_version: null  # the version for <link rel="canonical">; `null`
+                               # uses the version specified via `mike deploy`
+  - search
+  - autorefs
+  - mkdocstrings:
+      default_handler: python
+      handlers:
+        python:
+          selection:
+            docstring_style: google
+            # docstring_options:
+              # replace_admonitions: no 
+          rendering:
+            show_source: false
+            show_root_heading: true
+            members_order: source
+            merge_init_into_class: false
+            separate_signature: false
+            show_signature_annotations: true
+            docstring_section_style: table
+      custom_templates: templates
+      watch:
+        - basi
