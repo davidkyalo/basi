@@ -2,11 +2,14 @@ from functools import cache
 from typing import TYPE_CHECKING, Literal, Union
 from celery import Celery, Task as BaseTask
 from celery.app.base import gen_task_name
+from celery.worker.request import Context
 
 from basi._common import import_string
 
 
 class Task(BaseTask):
+
+    request: Context
 
     def __call__(self, *args, **kwargs):
         return super().__call__(*args, **kwargs)
