@@ -9,7 +9,7 @@ from . import Bus, APP_CLASS_ENVVAR, get_current_app
 TASKS_MODULE = 'tasks'
 
 
-def get_default_app(*, setup: bool=True, set_prefix=False):
+def get_default_app(*, setup: bool=True, set_prefix=False)-> Bus:
     setup and dj_setup(set_prefix=set_prefix)
     return get_current_app()
     
@@ -21,7 +21,6 @@ def gen_app_task_name(bus: Bus, name, module: str):
 
 
 def _init_settings(namespace):
-    os.environ.setdefault('')
     defaults = {
         'app_class': os.getenv(APP_CLASS_ENVVAR),
         'task_name_generator': gen_app_task_name,
@@ -32,7 +31,7 @@ def _init_settings(namespace):
         n = f'{prefix}{k}'.upper()
         if (s := getattr(settings, n, None)) is None:
             setattr(settings, n, s := v)
-        if k == 'app_class':
+        elif k == 'app_class':
             os.environ[APP_CLASS_ENVVAR] = s
 
 

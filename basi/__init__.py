@@ -11,13 +11,13 @@ current_task: Task
 shared_task = abc.Callable[..., Task]
 
 
-APP_CLASS_ENVVAR = 'CELERY_APP_CLASS'
-SETTINGS_ENVVAR = 'CELERY_SETTINGS_MODULE'
+DEFAULT_NAMESPACE = os.getenv('BASI_NAMESPACE', 'CELERY')
+
+APP_CLASS_ENVVAR = f'{DEFAULT_NAMESPACE}_APP_CLASS'
+SETTINGS_ENVVAR = f'{DEFAULT_NAMESPACE}_SETTINGS_MODULE'
 
 
-
-
-def get_current_app():
+def get_current_app() -> Bus:
     from celery import _state
     if _state.default_app:
         return _state.get_current_app()
@@ -28,10 +28,11 @@ def get_current_app():
     
     app = cls(
         'default', fixups=[], set_as_current=False,
-        namespace=os.getenv('BASI_NAMESPACE', 'CELERY'),
+        namespace=DEFAULT_NAMESPACE,
         loader=os.environ.get('CELERY_LOADER') or 'default',
     )
     app.set_default()
+    app.config_from_envvar(SETTINGS_ENVVAR)
     return _state.get_current_app()
 
 
