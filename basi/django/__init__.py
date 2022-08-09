@@ -4,7 +4,7 @@ from django import setup as dj_setup
 from django.apps import apps
 from django.conf import settings
 
-from . import Bus, APP_CLASS_ENVVAR, get_current_app
+from .. import Bus, APP_CLASS_ENVVAR, get_current_app
 
 TASKS_MODULE = 'tasks'
 
@@ -16,8 +16,11 @@ def get_default_app(*, setup: bool=True, set_prefix=False)-> Bus:
 
 def gen_app_task_name(bus: Bus, name, module: str):
     if app := apps.get_containing_app_config(module):
-        prefix = f"{app.name}.{getattr(app, 'tasks_module', '') or TASKS_MODULE}"
-        if module.startswith(prefix):
+        module = module[len(app.name):].lstrip('.')
+        prefix = f"{getattr(app, 'tasks_module', None) or TASKS_MODULE}"
+        if module == prefix:
+            module = app.label
+        elif module.startswith(prefix + '.'):
             module = f"{app.label}{module[len(prefix):]}"
     return f'{module}.{name}'
 
