@@ -16,7 +16,9 @@ def get_default_app(*, setup: bool=True, set_prefix=False)-> Bus:
 
 def gen_app_task_name(bus: Bus, name, module: str):
     if app := apps.get_containing_app_config(module):
-        module = app.label
+        prefix = f"{app.name}.{getattr(app, 'tasks_module', '') or TASKS_MODULE}"
+        if module.startswith(prefix):
+            module = f"{app.label}{module[len(prefix):]}"
     return f'{module}.{name}'
 
 
