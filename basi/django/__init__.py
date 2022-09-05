@@ -22,6 +22,8 @@ def gen_app_task_name(bus: Bus, name, module: str):
             module = app.label
         elif module.startswith(prefix + '.'):
             module = f"{app.label}{module[len(prefix):]}"
+        else:
+            module = f"{app.label}.{module}".rstrip('.')
     return f'{module}.{name}'
 
 
