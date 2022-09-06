@@ -114,7 +114,7 @@ class model_task_method:
         else:
             self.func, self.options = func, options
     
-    def handler(self, func) -> Self:
+    def __call__(self, func) -> Self:
         self.func = func
         return self
 
