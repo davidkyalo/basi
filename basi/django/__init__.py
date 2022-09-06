@@ -1,10 +1,19 @@
-from collections import defaultdict
+from collections import abc, defaultdict
+from functools import wraps
 import os
+from typing import TYPE_CHECKING, Any, TypeVar
+from typing_extensions import Self
 from django import setup as dj_setup
 from django.apps import apps
 from django.conf import settings
+from celery import shared_task, Task as BaseTask
+from celery.canvas import Signature
 
-from .. import Bus, APP_CLASS_ENVVAR, get_current_app
+from .. import Bus, APP_CLASS_ENVVAR, get_current_app, Task
+
+if TYPE_CHECKING:
+    from django.db.models import Model
+
 
 TASKS_MODULE = 'tasks'
 
@@ -55,3 +64,80 @@ def autodiscover_app_tasks(bus: Bus, module=TASKS_MODULE):
 
 
     
+
+
+_T_Model = TypeVar('_T_Model', bound='Model')
+
+
+
+
+
+def bind_model(func=None, /, model: type=None):
+    def decorator(fn):
+        from django.db.models import Model
+        @wraps(fn)
+        def run(self: Task, /, *a, **kw):
+            if isinstance(self, BaseTask):
+                self, *a = [a[0], self, *a[1:]]
+            
+            cls = model or Model
+            if not isinstance(self, cls):
+                if isinstance(self, (list, tuple)):
+                    *mn, pk = self
+                    cls = apps.get_model(*mn)
+                    assert not model or issubclass(cls, model)
+                else:
+                    pk = self
+                self = cls._default_manager.get(pk=pk)
+            
+            return fn(self, *a, **kw)
+        
+        return run
+
+    return decorator if func is None else decorator(func)
+
+
+
+    
+class model_task_method:
+    func: abc.Callable = None
+    options: dict[str, Any] = None
+    pk_field: str = 'pk'
+    task = None
+    model = None
+    task: Task
+    attr: str
+
+    def __init__(self, func=None, /, **options) -> None:
+        if isinstance(func, BaseTask):
+            self.task = func
+        else:
+            self.func, self.options = func, options
+    
+    def handler(self, func) -> Self:
+        self.func = func
+        return self
+
+    def __get__(self, obj: _T_Model, typ: type[_T_Model]=None) -> Signature:
+        if obj is None:
+            return self.task
+        if not (pk := getattr(obj, self.pk_field, None)) is None:
+            meta = obj._meta
+            return self.task.signature([[meta.app_label, meta.object_name, pk]])
+        raise AttributeError(self.task.name)
+
+    def _register_task(self, cls: type[_T_Model], name: str):
+        if self.task:
+            raise TypeError('task already set')
+        func = bind_model(self.func, cls)
+        func.__name__ = name
+        self.task = shared_task(func, **self.options)
+
+    def contribute_to_class(self, cls, name):
+        assert self.func or self.task
+        self.task or self._register_task(cls, name)
+        setattr(cls, name, self)
+
+         
+        
+        
