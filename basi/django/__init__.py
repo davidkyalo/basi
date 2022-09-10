@@ -39,7 +39,6 @@ def gen_app_task_name(bus: Bus, name, module: str):
 def _init_settings(namespace):
     defaults = {
         'app_class': os.getenv(APP_CLASS_ENVVAR),
-        'task_name_generator': gen_app_task_name,
     }
     
     prefix = namespace and f'{namespace}_' or ''
@@ -97,22 +96,23 @@ def bind_model(func=None, /, model: type=None):
     return decorator if func is None else decorator(func)
 
 
-
+    
     
 class model_task_method:
     func: abc.Callable = None
     options: dict[str, Any] = None
     pk_field: str = 'pk'
+    attr_name = None
     task = None
     model = None
     task: Task
     attr: str
 
-    def __init__(self, func=None, /, **options) -> None:
+    def __init__(self, func=None, /, attr_name: str=None, **options) -> None:
         if isinstance(func, BaseTask):
             self.task = func
         else:
-            self.func, self.options = func, options
+            self.func, self.attr_name, self.options = func, attr_name, options
     
     def __call__(self, func) -> Self:
         self.func = func
@@ -130,14 +130,11 @@ class model_task_method:
         if self.task:
             raise TypeError('task already set')
         func = bind_model(self.func, cls)
-        func.__name__ = name
-        self.task = shared_task(func, **self.options)
+        func.__name__ = name = self.attr_name or name
+        self.task = shared_task(func, **{'name': f'{cls.__module__}.{cls.__qualname__}.{name}'} | self.options)
 
     def contribute_to_class(self, cls, name):
         assert self.func or self.task
         self.task or self._register_task(cls, name)
         setattr(cls, name, self)
 
-         
-        
-        
