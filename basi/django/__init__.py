@@ -1,7 +1,7 @@
 from collections import abc, defaultdict
 from functools import wraps
 import os
-from typing import TYPE_CHECKING, Any, TypeVar
+from typing import TYPE_CHECKING, Any, TypeVar, Union
 from typing_extensions import Self
 from django import setup as dj_setup
 from django.apps import apps
@@ -18,7 +18,7 @@ if TYPE_CHECKING:
 TASKS_MODULE = 'tasks'
 
 
-def get_default_app(*, setup: bool | abc.Callable=True, set_prefix=False)-> Bus:
+def get_default_app(*, setup: Union[bool, abc.Callable]=True, set_prefix=False)-> Bus:
     if setup is True:
         setup = dj_setup
     setup and setup(set_prefix=set_prefix)
