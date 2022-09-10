@@ -18,8 +18,10 @@ if TYPE_CHECKING:
 TASKS_MODULE = 'tasks'
 
 
-def get_default_app(*, setup: bool=True, set_prefix=False)-> Bus:
-    setup and dj_setup(set_prefix=set_prefix)
+def get_default_app(*, setup: bool | abc.Callable=True, set_prefix=False)-> Bus:
+    if setup is True:
+        setup = dj_setup
+    setup and setup(set_prefix=set_prefix)
     return get_current_app()
     
 
@@ -136,5 +138,5 @@ class model_task_method:
     def contribute_to_class(self, cls, name):
         assert self.func or self.task
         self.task or self._register_task(cls, name)
-        setattr(cls, name, self)
+        setattr(cls, self.attr_name or name, self)
 
