@@ -64,7 +64,6 @@ class Command(BaseCommand):
             '-A',
             getattr(settings, 'CELERY_APPLICATION', ''),
             'worker',
-            '-l', 'INFO',
-            *sys.argv[1:]
+            '-l', 'DEBUG',
         ]
         celery.main()
