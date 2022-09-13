@@ -1,15 +1,16 @@
 from collections import abc, defaultdict
 from functools import wraps
 import os
+import inspect
 from typing import TYPE_CHECKING, Any, TypeVar, Union
 from typing_extensions import Self
 from django import setup as dj_setup
 from django.apps import apps
 from django.conf import settings
 from celery import shared_task, Task as BaseTask
-from celery.canvas import Signature
+from celery.canvas import Signature, signature, task_name_from
 
-from .. import Bus, APP_CLASS_ENVVAR, get_current_app, Task
+from .. import Bus, APP_CLASS_ENVVAR, get_current_app, Task, BoundTask
 
 if TYPE_CHECKING:
     from django.db.models import Model
@@ -74,6 +75,9 @@ _T_Model = TypeVar('_T_Model', bound='Model')
 
 
 def bind_model(func=None, /, model: type=None):
+    from warnings import warn
+    warn('`bind_model()` is deprecated in favor of `BoundTask`', DeprecationWarning)
+
     def decorator(fn):
         from django.db.models import Model
         @wraps(fn)
@@ -111,7 +115,7 @@ class model_task_method:
     attr: str
 
     def __init__(self, func=None, /, attr_name: str=None, **options) -> None:
-        if isinstance(func, BaseTask):
+        if isinstance(func, (BaseTask, Signature)):
             self.task = func
         else:
             self.func, self.attr_name, self.options = func, attr_name, options
@@ -123,17 +127,45 @@ class model_task_method:
     def __get__(self, obj: _T_Model, typ: type[_T_Model]=None) -> Signature:
         if obj is None:
             return self.task
-        if not (pk := getattr(obj, self.pk_field, None)) is None:
+        elif not (pk := getattr(obj, self.pk_field, None)) is None:
             meta = obj._meta
-            return self.task.signature([[meta.app_label, meta.object_name, pk]])
+            kwargs = {'__self__': [meta.app_label, meta.object_name, pk]}
+            s = signature(self.task).clone(kwargs=kwargs)
+            return s
         raise AttributeError(self.task.name)
 
     def _register_task(self, cls: type[_T_Model], name: str):
         if self.task:
             raise TypeError('task already set')
-        func = bind_model(self.func, cls)
-        func.__name__ = name = self.attr_name or name
-        self.task = shared_task(func, **{'name': f'{cls.__module__}.{cls.__qualname__}.{name}'} | self.options)
+        func = self._get_task_func(cls, name)
+        self.task = shared_task(func, **self._get_task_options(cls, name))
+        
+    def _get_task_func(self, cls, name):
+        func = self.func
+        return func
+        
+    def _get_task_options(self, cls, name):
+        if not (resolve_self := self.options.get('resolve_self')):
+            def resolve_self(self: BoundTask, arg):
+                nonlocal cls, name
+                model: type[_T_Model] = cls
+                if not isinstance(arg, model):
+                    if isinstance(arg, (list, tuple)):
+                        *mn, pk = arg
+                        model = apps.get_model(*mn)
+                        assert issubclass(model, cls)
+                    else:
+                        pk = arg
+                    arg = model._default_manager.get(pk=pk)
+                return arg
+            
+        return {
+            'base': BoundTask,
+            'typing': False,
+            'resolve_self': resolve_self,
+            '__qualname__': f'{cls.__qualname__}.{name}',
+            'name': f'{cls.__module__}.{cls.__qualname__}.{name}',
+        } | self.options
 
     def contribute_to_class(self, cls, name):
         assert self.func or self.task

@@ -3,7 +3,7 @@ import os
 
 from celery import current_task, shared_task
 from celery.local import Proxy
-from .base import Bus, Task, Celery
+from .base import Bus, Task, BoundTask
 from ._common import import_string
 
 current_task: Task

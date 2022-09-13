@@ -41,10 +41,10 @@ class Command(BaseCommand):
 
     def add_arguments(self, parser):
         parser.add_argument(
-            "--noreload",
-            action="store_false",
-            dest="use_reloader",
-            help="Tells Django to NOT use the auto-reloader.",
+            '-f', "--force",
+            action="store_true",
+            dest="force",
+            help="Skip the confirmation prompt.",
         )
 
     def handle(self, *args, **options):
@@ -52,19 +52,12 @@ class Command(BaseCommand):
 
     def run(self, **options):
         """Run the server, using the autoreloader if needed."""
-        if options["use_reloader"]:
-            autoreload.run_with_reloader(self.inner_run, *sys.argv[2:], **options)
-        else:
-            self.inner_run(None, *sys.argv[2:], **options)
-
-    def inner_run(self, *args, **options):
-        sys.argv = [
+        sys.argv[:2] = [
             'celery',
             '-A',
             getattr(settings, 'CELERY_APPLICATION', ''),
-            'worker',
-            '-l', 'DEBUG',
-            *args
-        ]
+            'purge',
 
+        ]
         celery.main()
+

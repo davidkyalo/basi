@@ -1,7 +1,8 @@
 from collections import abc
 from functools import cache
-from typing import TYPE_CHECKING, Literal, Union, overload
+from typing import TYPE_CHECKING, Any, Literal, Union, overload
 from celery import Celery, Task as BaseTask
+from celery.app import push_current_task, pop_current_task
 from celery.app.base import gen_task_name
 from celery.worker.request import Context
 
@@ -12,6 +13,39 @@ class Task(BaseTask):
 
     request: Context
     app: "Bus"
+    is_method: bool = False
+
+    if TYPE_CHECKING:
+        def resolve_arguments(self, *args, **kwargs) -> tuple[tuple, dict[str, Any]]:
+            pass
+    else:
+        resolve_arguments = None
+
+    def __call__(self, *args, **kwargs):
+        push_current_task(self)
+        self.push_request(args=args, kwargs=kwargs)
+        try:
+            if self.resolve_arguments:
+                args, kwargs = self.resolve_arguments(*args, **kwargs)
+            return self.run(*args, **kwargs)
+        finally:
+            self.pop_request()
+            pop_current_task()
+
+
+
+_missing = object()
+
+class BoundTask(Task):
+
+    def resolve_arguments(self, /, *args, __self__=_missing, **kwargs):
+        if __self__ is _missing:
+            __self__, args = (args or (None,))[0], args[1:]
+        return (self.resolve_self(__self__),) + args, kwargs
+
+    def resolve_self(self, s):
+        return s
+
 
 
 
