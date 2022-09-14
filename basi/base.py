@@ -2,6 +2,7 @@ from collections import abc
 from functools import cache
 from typing import TYPE_CHECKING, Any, Literal, Union, overload
 from celery import Celery, Task as BaseTask
+from celery.canvas import Signature
 from celery.app import push_current_task, pop_current_task
 from celery.app.base import gen_task_name
 from celery.worker.request import Context
@@ -21,7 +22,7 @@ class Task(BaseTask):
     else:
         resolve_arguments = None
 
-    def __call__(self, *args, **kwargs):
+    def __call__(self, /, *args, **kwargs):
         push_current_task(self)
         self.push_request(args=args, kwargs=kwargs)
         try:
@@ -34,6 +35,19 @@ class Task(BaseTask):
 
 
 
+# class BoundSignature(Signature):
+#     __slots__ = ()
+
+#     def __call__(self, /, *args: Any, **kwds: Any) -> Any:
+#         return super().__call__(*args, **kwds)
+
+#     def apply_async(self, args=None, kwargs=None, route_name=None, **options):
+#         return super().apply_async(args, kwargs, route_name, **options)
+
+#     def apply(self, args=None, kwargs=None, **options):
+#         return super().apply(args, kwargs, **options)
+
+
 _missing = object()
 
 class BoundTask(Task):
@@ -43,7 +57,7 @@ class BoundTask(Task):
             __self__, args = (args or (None,))[0], args[1:]
         return (self.resolve_self(__self__),) + args, kwargs
 
-    def resolve_self(self, s):
+    def resolve_self(self, /, s):
         return s
 
 
