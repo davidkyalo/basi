@@ -145,9 +145,10 @@ class model_task_method:
         return func
         
     def _get_task_options(self, cls, name):
-        if not (resolve_self := self.options.get('resolve_self')):
+        opts = self.options
+        if not (resolve_self := opts.get('resolve_self')):
             def resolve_self(self: BoundTask, arg):
-                nonlocal cls, name
+                nonlocal cls
                 model: type[_T_Model] = cls
                 if not isinstance(arg, model):
                     if isinstance(arg, (list, tuple)):
@@ -158,14 +159,15 @@ class model_task_method:
                         pk = arg
                     arg = model._default_manager.get(pk=pk)
                 return arg
-            
+        name = opts.get("__name__") or name
+        qualname = f'{cls.__qualname__}.{name}'
         return {
             'base': BoundTask,
             'typing': False,
             'resolve_self': resolve_self,
-            '__qualname__': f'{cls.__qualname__}.{name}',
-            'name': f'{cls.__module__}.{cls.__qualname__}.{name}',
-        } | self.options
+            '__qualname__': qualname,
+            'name': f'{cls.__module__}.{qualname}',
+        } | opts
 
     def contribute_to_class(self, cls, name):
         assert self.func or self.task
