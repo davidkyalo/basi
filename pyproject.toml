@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "basi"
-version = "0.2.1"
+version = "0.2.2"
 description = "Distributed tasks and signals"
 authors = ["David Kyalo <davidmkyalo@gmail.com>"]
 license = "MIT"
