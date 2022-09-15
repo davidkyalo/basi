@@ -1,5 +1,6 @@
 from collections import abc
-from functools import cache
+from functools import cache, wraps
+from types import FunctionType
 from typing import TYPE_CHECKING, Any, Literal, Union, overload
 from celery import Celery, Task as BaseTask
 from celery.canvas import Signature
@@ -35,22 +36,20 @@ class Task(BaseTask):
 
 
 
-# class BoundSignature(Signature):
-#     __slots__ = ()
-
-#     def __call__(self, /, *args: Any, **kwds: Any) -> Any:
-#         return super().__call__(*args, **kwds)
-
-#     def apply_async(self, args=None, kwargs=None, route_name=None, **options):
-#         return super().apply_async(args, kwargs, route_name, **options)
-
-#     def apply(self, args=None, kwargs=None, **options):
-#         return super().apply(args, kwargs, **options)
-
 
 _missing = object()
 
 class BoundTask(Task):
+
+    def __init_subclass__(cls) -> None:
+        if not isinstance(cls.__dict__['run'], staticmethod):
+            fn = cls.run
+            @wraps(fn)
+            def run(t, s, /, *a, **kw):
+                return fn(s, t, *a, **kw)
+            cls.fn = run
+
+        return super().__init_subclass__()
 
     def resolve_arguments(self, /, *args, __self__=_missing, **kwargs):
         if __self__ is _missing:
