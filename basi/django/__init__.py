@@ -2,13 +2,15 @@ from collections import abc, defaultdict
 from functools import wraps
 import os
 import inspect
+from types import FunctionType
 from typing import TYPE_CHECKING, Any, TypeVar, Union
 from typing_extensions import Self
 from django import setup as dj_setup
 from django.apps import apps
 from django.conf import settings
+from celery.local import Proxy
 from celery import shared_task, Task as BaseTask
-from celery.canvas import Signature, signature, task_name_from
+from celery.canvas import Signature, signature
 
 from .. import Bus, APP_CLASS_ENVVAR, get_current_app, Task, BoundTask
 
@@ -102,7 +104,49 @@ def bind_model(func=None, /, model: type=None):
     return decorator if func is None else decorator(func)
 
 
+
+def _unpickle_model(model, *, cls=None):
+    from django.db.models import Model
+    res = model
+    if isinstance(model, (tuple, list)):
+        *mn, pk = model
+        res = apps.get_model(*mn)._default_manager.get(pk=pk)
+    assert isinstance(res, cls or Model), f'{res} from {model} is not {(cls or Model).__qualname__}'
+    return res
+
+_unpickle_model.__safe_for_unpickle__ = True
+
+
+class _ModelProxy(Proxy):
+    __slots__ = ('__object')
+
+    def __init__(self, local):
+        object.__setattr__(self, '_ModelProxy__object', local)
+
+    def _get_current_object(self):
+        return self.__object # object.__getattribute__(self, '_ModelProxy__object')
+
+    def __json__(self):
+        return self.__persistent_identity__()
+
+    def __persistent_identity__(self):
+        obj: 'Model' = self._get_current_object()
+        if not obj.pk:
+            raise ValueError(f'object not saved {obj}')
+        return obj._meta.app_label, obj._meta.object_name, obj.pk
+
+    def __reduce__(self):
+        return _unpickle_model, (self.__persistent_identity__(),)
+
+
+
+class BoundModelTask(BoundTask):
     
+    model_class: type['Model'] = None
+
+    def resolve_self(self, arg):
+        return _unpickle_model(arg, cls=self.model_class)
+       
     
 class model_task_method:
     func: abc.Callable = None
@@ -127,12 +171,9 @@ class model_task_method:
     def __get__(self, obj: _T_Model, typ: type[_T_Model]=None) -> Signature:
         if obj is None:
             return self.task
-        elif not (pk := getattr(obj, self.pk_field, None)) is None:
-            meta = obj._meta
-            kwargs = {'__self__': [meta.app_label, meta.object_name, pk]}
-            s = signature(self.task).clone(kwargs=kwargs)
-            return s
-        raise AttributeError(self.task.name)
+        kwargs = {'__self__': _ModelProxy(obj)}
+        s = signature(self.task).clone(kwargs=kwargs)
+        return s
 
     def _register_task(self, cls: type[_T_Model], name: str):
         if self.task:
@@ -146,25 +187,13 @@ class model_task_method:
         
     def _get_task_options(self, cls, name):
         opts = self.options
-        if not (resolve_self := opts.get('resolve_self')):
-            def resolve_self(self: BoundTask, arg):
-                nonlocal cls
-                model: type[_T_Model] = cls
-                if not isinstance(arg, model):
-                    if isinstance(arg, (list, tuple)):
-                        *mn, pk = arg
-                        model = apps.get_model(*mn)
-                        assert issubclass(model, cls)
-                    else:
-                        pk = arg
-                    arg = model._default_manager.get(pk=pk)
-                return arg
         name = opts.get("__name__") or name
         qualname = f'{cls.__qualname__}.{name}'
         return {
-            'base': BoundTask,
-            'resolve_self': resolve_self,
+            'base': BoundModelTask,
+            'model_class': cls,
             '__qualname__': qualname,
+            'typing': False,
             'name': f'{cls.__module__}.{qualname}',
         } | opts
 
