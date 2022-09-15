@@ -163,7 +163,6 @@ class model_task_method:
         qualname = f'{cls.__qualname__}.{name}'
         return {
             'base': BoundTask,
-            'typing': False,
             'resolve_self': resolve_self,
             '__qualname__': qualname,
             'name': f'{cls.__module__}.{qualname}',
