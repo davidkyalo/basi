@@ -47,7 +47,7 @@ class BoundTask(Task):
             @wraps(fn)
             def run(t, s, /, *a, **kw):
                 return fn(s, t, *a, **kw)
-            cls.fn = run
+            cls.run = run
 
         return super().__init_subclass__()
 
