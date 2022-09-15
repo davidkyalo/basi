@@ -29,7 +29,7 @@ class BoundTask(Task):
         if 'run' in cls.__dict__:
             cls._bind_this_instance = not isinstance(cls.__dict__['run'], staticmethod)
             fn = cls.run
-            # @wraps(fn)
+            @wraps(fn)
             def run(self: Self, /, *a, **kw):
                 nonlocal fn
                 a, kw = self.resolve_arguments(*a, **kw)
