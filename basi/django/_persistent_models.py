@@ -13,7 +13,7 @@ from basi import SupportsPersistentPickle
 def load_persisted(app_label, model_name, pk, using=None, /):
     cls: type[models.Model] = apps.get_model(app_label, model_name)
     qs = cls._default_manager.using(using)
-    return qs.filter(pk).first()
+    return qs.filter(pk=pk).first()
     
 
 
