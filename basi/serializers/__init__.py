@@ -1,0 +1,1 @@
+from .persistent_pickle import SupportsPersistentPickle

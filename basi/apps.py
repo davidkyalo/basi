@@ -18,6 +18,9 @@ class BasiConfig(AppConfig):
     def __init__(self, app_name: str, app_module: Optional[ModuleType]) -> None:
         super().__init__(app_name, app_module)
         _init_settings(DEFAULT_NAMESPACE)
+        from .django._persistent_models import _patch
+        _patch()
 
     def ready(self) -> None:
+        
         autodiscover_app_tasks(get_current_app())
