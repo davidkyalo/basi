@@ -53,7 +53,7 @@ class MethodTask(Task, Generic[_T]):
             cls.run = run
         return super().__init_subclass__(**kwargs)
 
-    def __get__(self, obj: _T, typ):
+    def __get__(self, obj: _T, typ) -> Self:
         if obj is None:
             return self
         return self.get_bound_instance(obj)
@@ -226,7 +226,7 @@ class Bus(Celery):
         q and kwds.update(queue=q)
         return super().send_task(name, *args, **kwds)
 
-    def method_task(self, fn=None, /, *args, base=MethodTask, **opts) -> MethodTask:
+    def method_task(self, fn=None, /, *args, base=MethodTask, **opts):
         """Decorator to create a MethodTask class out of any callable.
 
         See :ref:`Task options<task-options>` for a list of the
@@ -262,8 +262,6 @@ class Bus(Celery):
         return decorator if fn is None else decorator(fn)
 
 
-    if TYPE_CHECKING:
-        method_task = Celery.task
 
 Celery = Bus
 
