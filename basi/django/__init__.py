@@ -9,10 +9,10 @@ from django import setup as dj_setup
 from django.apps import apps
 from django.conf import settings
 from celery.local import Proxy
-from celery import shared_task, Task as BaseTask
+from celery import Task as BaseTask
 from celery.canvas import Signature, signature
 
-from .. import Bus, APP_CLASS_ENVVAR, get_current_app, Task, BoundTask
+from .. import Bus, APP_CLASS_ENVVAR, get_current_app, Task, MethodTask, shared_method_task
 
 if TYPE_CHECKING:
     from django.db.models import Model
@@ -76,77 +76,49 @@ _T_Model = TypeVar('_T_Model', bound='Model')
 
 
 
-def bind_model(func=None, /, model: type=None):
-    from warnings import warn
-    warn('`bind_model()` is deprecated in favor of `BoundTask`', DeprecationWarning)
+# def _unpickle_model(model, *, cls=None):
+#     from django.db.models import Model
+#     res = model
+#     if isinstance(model, (tuple, list)):
+#         *mn, pk = model
+#         res = apps.get_model(*mn)._default_manager.get(pk=pk)
+#     assert isinstance(res, cls or Model), f'{res} from {model} is not {(cls or Model).__qualname__}'
+#     return res
 
-    def decorator(fn):
-        from django.db.models import Model
-        @wraps(fn)
-        def run(self: Task, /, *a, **kw):
-            if isinstance(self, BaseTask):
-                self, *a = [a[0], self, *a[1:]]
-            
-            cls = model or Model
-            if not isinstance(self, cls):
-                if isinstance(self, (list, tuple)):
-                    *mn, pk = self
-                    cls = apps.get_model(*mn)
-                    assert not model or issubclass(cls, model)
-                else:
-                    pk = self
-                self = cls._default_manager.get(pk=pk)
-            
-            return fn(self, *a, **kw)
-        
-        return run
-
-    return decorator if func is None else decorator(func)
+# _unpickle_model.__safe_for_unpickle__ = True
 
 
+# class _ModelProxy(Proxy):
+#     __slots__ = ('__object')
 
-def _unpickle_model(model, *, cls=None):
-    from django.db.models import Model
-    res = model
-    if isinstance(model, (tuple, list)):
-        *mn, pk = model
-        res = apps.get_model(*mn)._default_manager.get(pk=pk)
-    assert isinstance(res, cls or Model), f'{res} from {model} is not {(cls or Model).__qualname__}'
-    return res
+#     def __init__(self, local):
+#         object.__setattr__(self, '_ModelProxy__object', local)
 
-_unpickle_model.__safe_for_unpickle__ = True
+#     def _get_current_object(self):
+#         return self.__object # object.__getattribute__(self, '_ModelProxy__object')
 
+#     def __json__(self):
+#         return self.__persistent_identity__()
 
-class _ModelProxy(Proxy):
-    __slots__ = ('__object')
+#     def __persistent_identity__(self):
+#         obj: 'Model' = self._get_current_object()
+#         if not obj.pk:
+#             raise ValueError(f'object not saved {obj}')
+#         return obj._meta.app_label, obj._meta.object_name, obj.pk
 
-    def __init__(self, local):
-        object.__setattr__(self, '_ModelProxy__object', local)
-
-    def _get_current_object(self):
-        return self.__object # object.__getattribute__(self, '_ModelProxy__object')
-
-    def __json__(self):
-        return self.__persistent_identity__()
-
-    def __persistent_identity__(self):
-        obj: 'Model' = self._get_current_object()
-        if not obj.pk:
-            raise ValueError(f'object not saved {obj}')
-        return obj._meta.app_label, obj._meta.object_name, obj.pk
-
-    def __reduce__(self):
-        return _unpickle_model, (self.__persistent_identity__(),)
+#     def __reduce__(self):
+#         return _unpickle_model, (self.__persistent_identity__(),)
 
 
 
-class BoundModelTask(BoundTask):
+# class BoundModelTask(BoundTask):
     
-    model_class: type['Model'] = None
+#     model_class: type['Model'] = None
 
-    def resolve_self(self, arg):
-        return _unpickle_model(arg, cls=self.model_class)
-       
+#     def resolve_self(self, arg):
+#         return _unpickle_model(arg, cls=self.model_class)
+
+
     
 class model_task_method:
     func: abc.Callable = None
@@ -155,10 +127,13 @@ class model_task_method:
     attr_name = None
     task = None
     model = None
-    task: Task
+    task: MethodTask
     attr: str
 
     def __init__(self, func=None, /, attr_name: str=None, **options) -> None:
+        from warnings import warn
+        warn('`model_task_method` is deprecated in favor of `task_method`', DeprecationWarning)
+
         if isinstance(func, (BaseTask, Signature)):
             self.task = func
         else:
@@ -169,17 +144,18 @@ class model_task_method:
         return self
 
     def __get__(self, obj: _T_Model, typ: type[_T_Model]=None) -> Signature:
-        if obj is None:
-            return self.task
-        kwargs = {'__self__': _ModelProxy(obj)}
-        s = signature(self.task).clone(kwargs=kwargs)
-        return s
+        return self.task.__get__(obj, typ).s()
+        # if obj is None:
+        #     return self.task
+        # kwargs = {'__self__': _ModelProxy(obj)}
+        # s = signature(self.task).clone(kwargs=kwargs)
+        # return s
 
     def _register_task(self, cls: type[_T_Model], name: str):
         if self.task:
             raise TypeError('task already set')
         func = self._get_task_func(cls, name)
-        self.task = shared_task(func, **self._get_task_options(cls, name))
+        self.task = shared_method_task(func, **self._get_task_options(cls, name))
         
     def _get_task_func(self, cls, name):
         func = self.func
@@ -189,8 +165,8 @@ class model_task_method:
         opts = self.options
         name = opts.get("__name__") or name
         qualname = f'{cls.__qualname__}.{name}'
+
         return {
-            'base': BoundModelTask,
             'model_class': cls,
             '__qualname__': qualname,
             'typing': False,

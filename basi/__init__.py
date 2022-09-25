@@ -1,15 +1,16 @@
 from collections import abc
 import os
+from typing import TYPE_CHECKING
 
 from celery import current_task, shared_task
 from celery.local import Proxy
-from .base import Bus, Task, BoundTask
+from .base import Bus, Task, MethodTask
 from ._common import import_string
 from .serializers import SupportsPersistentPickle
 
 current_task: Task
 
-shared_task = abc.Callable[..., Task]
+# shared_task = abc.Callable[..., Task]
 
 
 DEFAULT_NAMESPACE = os.getenv('BASI_NAMESPACE', 'CELERY')
@@ -37,8 +38,14 @@ def get_current_app() -> Bus:
     return _state.get_current_app()
 
 
+def shared_method_task(fn=None, /, *args, base=MethodTask, **options):
+    options['base'] = base or MethodTask
+    def decorator(func):
+        return shared_task(func, *args, **{'name': f'{func.__module__}.{func.__qualname__}'} | options)
+    return decorator if fn is None else decorator(fn)
 
-
+if TYPE_CHECKING:
+    shared_method_task = shared_task
 
 bus: Bus = Proxy(get_current_app)
 app = bus
