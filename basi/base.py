@@ -36,6 +36,7 @@ class MethodTask(Task, Generic[_T]):
 
     bind_task = None
     method: str = None
+    typing: bool = False
     attr_name: str = None
     BoundProxy: type['BoundMethodTaskProxy'] = None
 
