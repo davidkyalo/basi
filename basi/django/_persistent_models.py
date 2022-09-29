@@ -2,7 +2,7 @@ import typing as t
 
 from django.db import models 
 from django.apps import apps 
-
+from celery.local import PromiseProxy
 
 from basi import SupportsPersistentPickle
 
@@ -13,7 +13,7 @@ from basi import SupportsPersistentPickle
 def load_persisted(app_label, model_name, pk, using=None, /):
     cls: type[models.Model] = apps.get_model(app_label, model_name)
     qs = cls._default_manager.using(using)
-    return qs.filter(pk=pk).first()
+    return PromiseProxy(lambda: qs.get(pk=pk))
 
 load_persisted.__safe_for_unpickle__ = True
 

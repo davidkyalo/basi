@@ -35,6 +35,7 @@ def get_current_app() -> Bus:
     )
     app.set_default()
     app.config_from_envvar(SETTINGS_ENVVAR)
+    from . import canvas
     return _state.get_current_app()
 
 
@@ -49,3 +50,5 @@ if TYPE_CHECKING:
 
 bus: Bus = Proxy(get_current_app)
 app = bus
+
+

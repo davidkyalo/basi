@@ -2,8 +2,8 @@ from collections import abc
 from functools import cache, cached_property, wraps
 from logging import Logger
 from types import FunctionType, MethodType
-from typing import TYPE_CHECKING, Any, Generic, Literal, TypeVar, Union, overload
-from typing_extensions import Self
+from typing import TYPE_CHECKING, Any, Generic, Literal, Optional, TypeVar, Union, overload
+from typing_extensions import Self, ParamSpec, Concatenate
 from celery import Celery, Task as BaseTask
 from celery.canvas import Signature
 from celery.app import push_current_task, pop_current_task
@@ -13,6 +13,12 @@ from celery.local import Proxy
 from celery.utils.log import get_task_logger
 
 from basi._common import import_string
+
+
+_missing = object()
+_T = TypeVar('_T')
+_R = TypeVar('_R')
+_P = ParamSpec('_P')
 
 BaseTask.__class_getitem__ = classmethod(lambda cls, *args, **kwargs: cls)
 
@@ -28,11 +34,7 @@ class Task(BaseTask):
 
 
 
-_missing = object()
-_T = TypeVar('_T')
-
-
-class MethodTask(Task, Generic[_T]):
+class MethodTask(Task, Generic[_T, _P, _R]):
 
     bind_task = None
     method: str = None
@@ -45,12 +47,16 @@ class MethodTask(Task, Generic[_T]):
             cls.bind_task = not isinstance(cls.__dict__['run'], staticmethod) or cls.bind_task
             fn = cls.run
             @wraps(fn)
-            def run(self: Self=..., /, *a, **kw):
+            def run(self: Self=..., /, *a: _P.args, **kw: _P.kwargs):
                 nonlocal fn
                 a, kw = self.resolve_arguments(a, kw)
                 if self.bind_task:
                     a = a[:1] + (self,) + a[1:]
                 return fn(*a, **kw)
+            if hasattr(fn, '__wrapped__'):
+                run.__wrapped__ = fn.__wrapped__
+            else:
+                del run.__wrapped__
             cls.run = run
         return super().__init_subclass__(**kwargs)
 
@@ -77,7 +83,7 @@ class MethodTask(Task, Generic[_T]):
 
 
 
-class BoundMethodTaskProxy(Proxy, (MethodTask[_T] if TYPE_CHECKING else Generic[_T])):
+class BoundMethodTaskProxy(Proxy, (MethodTask[_T, _P, _R] if TYPE_CHECKING else Generic[_T, _P, _R])):
 
     __slots__ = ()
 
@@ -118,7 +124,7 @@ class BoundMethodTaskProxy(Proxy, (MethodTask[_T] if TYPE_CHECKING else Generic[
             kwargs = self._get_current_kwargs(kwargs)
             return self._get_current_object().apply_async(args, kwargs, *__args, **options)
 
-        def __call__(self, *args, **kwargs):
+        def __call__(self, *args: _P.args, **kwargs: _P.kwargs) -> _R:
             kwargs = self._get_current_kwargs(kwargs)
             return self._get_current_object()(*args, **kwargs)
 
@@ -227,7 +233,7 @@ class Bus(Celery):
         q and kwds.update(queue=q)
         return super().send_task(name, *args, **kwds)
 
-    def method_task(self, fn=None, /, *args, base=MethodTask, **opts):
+    def method_task(self, fn: Optional[abc.Callable[Concatenate[_T, _P], _R]]=None, /, *args, base=MethodTask[_T, _P, _R], get_bound_instance=None, **opts) ->  MethodTask[_T, _P, _R]:
         """Decorator to create a MethodTask class out of any callable.
 
         See :ref:`Task options<task-options>` for a list of the
@@ -258,9 +264,14 @@ class Bus(Celery):
             application is fully set up (finalized).
         """
         opts['base'] = base or MethodTask
-        def decorator(func):
-            return self.task(func, *args, **{'name': f'{func.__module__}.{func.__qualname__}'} | opts)
-        return decorator if fn is None else decorator(fn)
+        if get_bound_instance:
+            opts['get_bound_instance'] = get_bound_instance
+        def decorator(func: abc.Callable[_P, _R]) -> MethodTask[_T, _P, _R]:
+            return self.task(*args, **{'name': f'{func.__module__}.{func.__qualname__}'} | opts)(func)
+        if fn is None:
+            return decorator
+        else:
+            return decorator(fn)
 
 
 

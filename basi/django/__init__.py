@@ -1,5 +1,7 @@
+from asyncio.log import logger
 from collections import abc, defaultdict
 from functools import wraps
+from logging import getLogger
 import os
 import inspect
 from types import FunctionType
@@ -19,6 +21,8 @@ if TYPE_CHECKING:
 
 
 TASKS_MODULE = 'tasks'
+
+logger = getLogger(__package__)
 
 
 def get_default_app(*, setup: Union[bool, abc.Callable]=True, set_prefix=False)-> Bus:
@@ -173,8 +177,9 @@ class model_task_method:
             'name': f'{cls.__module__}.{qualname}',
         } | opts
 
-    def contribute_to_class(self, cls, name):
+    def contribute_to_class(self, cls: type, name: str):
         assert self.func or self.task
         self.task or self._register_task(cls, name)
         setattr(cls, self.attr_name or name, self)
+        logger.warn(f'`model_task_method` is deprecated in favor of `method_task` in {cls.__qualname__}.{name}')
 
