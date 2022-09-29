@@ -1,7 +1,7 @@
 from collections import abc
 from functools import cache, cached_property, wraps
 from logging import Logger
-from types import FunctionType, MethodType
+from types import FunctionType, GenericAlias, MethodType
 from typing import TYPE_CHECKING, Any, Generic, Literal, Optional, TypeVar, Union, overload
 from typing_extensions import Self, ParamSpec, Concatenate
 from celery import Celery, Task as BaseTask
@@ -22,7 +22,9 @@ _P = ParamSpec('_P')
 
 BaseTask.__class_getitem__ = classmethod(lambda cls, *args, **kwargs: cls)
 
-class Task(BaseTask):
+class Task(BaseTask, Generic[_T, _P, _R]):
+
+    __class_getitem__ = classmethod(GenericAlias)
 
     request: Context
     app: "Bus"
@@ -34,7 +36,7 @@ class Task(BaseTask):
 
 
 
-class MethodTask(Task, Generic[_T, _P, _R]):
+class MethodTask(Task[_T, _P, _R]):
 
     bind_task = None
     method: str = None
@@ -233,7 +235,11 @@ class Bus(Celery):
         q and kwds.update(queue=q)
         return super().send_task(name, *args, **kwds)
 
-    def method_task(self, fn: Optional[abc.Callable[Concatenate[_T, _P], _R]]=None, /, *args, base=MethodTask[_T, _P, _R], get_bound_instance=None, **opts) ->  MethodTask[_T, _P, _R]:
+    @overload
+    def method_task(self, fn: abc.Callable[Concatenate[_T, _P], _R], /, *args, base=MethodTask[_T, _P, _R], get_bound_instance=None, **opts) -> MethodTask[_T, _P, _R]:...
+    @overload
+    def method_task(self, fn: None=None, /, *args, base=MethodTask[_T, _P, _R], get_bound_instance=None, **opts) -> abc.Callable[[abc.Callable[Concatenate[_T, _P], _R]], MethodTask[_T, _P, _R]]: ...
+    def method_task(self, fn: Optional[abc.Callable[Concatenate[_T, _P], _R]]=None, /, *args, base=MethodTask[_T, _P, _R], get_bound_instance=None, **opts):
         """Decorator to create a MethodTask class out of any callable.
 
         See :ref:`Task options<task-options>` for a list of the
