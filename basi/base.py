@@ -24,7 +24,7 @@ BaseTask.__class_getitem__ = classmethod(lambda cls, *args, **kwargs: cls)
 
 class Task(BaseTask, Generic[_T, _P, _R]):
 
-    __class_getitem__ = classmethod(GenericAlias)
+    # __class_getitem__ = classmethod(GenericAlias)
 
     request: Context
     app: "Bus"
