@@ -13,7 +13,7 @@ class SupportsPersistentPickle(ABC):
 
     @abstractmethod
     def __reduce_persistent__(self):
-        return NotImplemented
+        return self.__reduce__()
 
     @classmethod
     def __subclasshook__(cls, subclass):
