@@ -35,7 +35,6 @@ class Command(BaseCommand):
             '-A',
             getattr(settings, 'CELERY_APPLICATION', ''),
             'worker',
-            '-l', 'DEBUG',
             *args
         ]
 
