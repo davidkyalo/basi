@@ -14,70 +14,70 @@ from celery.local import Proxy
 from celery import Task as BaseTask
 from celery.canvas import Signature, signature
 
-from .. import Bus, APP_CLASS_ENVVAR, get_current_app, Task, MethodTask, shared_method_task
+from .. import (
+    Bus,
+    APP_CLASS_ENVVAR,
+    get_current_app,
+    Task,
+    MethodTask,
+    shared_method_task,
+)
 
 if TYPE_CHECKING:
     from django.db.models import Model
 
 
-TASKS_MODULE = 'tasks'
+TASKS_MODULE = "tasks"
 
 logger = getLogger(__package__)
 
 
-def get_default_app(*, setup: Union[bool, abc.Callable]=True, set_prefix=False)-> Bus:
+def get_default_app(
+    *, setup: Union[bool, abc.Callable] = True, set_prefix=False
+) -> Bus:
     if setup is True:
         setup = dj_setup
     setup and setup(set_prefix=set_prefix)
     return get_current_app()
-    
+
 
 def gen_app_task_name(bus: Bus, name, module: str):
     if app := apps.get_containing_app_config(module):
-        module = module[len(app.name):].lstrip('.')
+        module = module[len(app.name) :].lstrip(".")
         prefix = f"{getattr(app, 'tasks_module', None) or TASKS_MODULE}"
         if module == prefix:
             module = app.label
-        elif module.startswith(prefix + '.'):
+        elif module.startswith(prefix + "."):
             module = f"{app.label}{module[len(prefix):]}"
         else:
-            module = f"{app.label}.{module}".rstrip('.')
-    return f'{module}.{name}'
+            module = f"{app.label}.{module}".rstrip(".")
+    return f"{module}.{name}"
 
 
 def _init_settings(namespace):
     defaults = {
-        'app_class': os.getenv(APP_CLASS_ENVVAR),
+        "app_class": os.getenv(APP_CLASS_ENVVAR),
     }
-    
-    prefix = namespace and f'{namespace}_' or ''
+
+    prefix = namespace and f"{namespace}_" or ""
     for k, v in defaults.items():
-        n = f'{prefix}{k}'.upper()
+        n = f"{prefix}{k}".upper()
         if (s := getattr(settings, n, None)) is None:
             setattr(settings, n, s := v)
-        elif k == 'app_class':
+        elif k == "app_class":
             os.environ[APP_CLASS_ENVVAR] = s
-
-
-        
 
 
 def autodiscover_app_tasks(bus: Bus, module=TASKS_MODULE):
     mods = defaultdict(list)
     for a in apps.get_app_configs():
-        mods[getattr(a, 'tasks_module', None) or module].append(a.name)
-    
+        mods[getattr(a, "tasks_module", None) or module].append(a.name)
+
     for m, p in mods.items():
         bus.autodiscover_tasks(p, m)
 
 
-    
-
-
-_T_Model = TypeVar('_T_Model', bound='Model')
-
-
-
+_T_Model = TypeVar("_T_Model", bound="Model")
 
 
 # def _unpickle_model(model, *, cls=None):
@@ -114,40 +114,35 @@ _T_Model = TypeVar('_T_Model', bound='Model')
 #         return _unpickle_model, (self.__persistent_identity__(),)
 
 
-
 # class BoundModelTask(BoundTask):
-    
+
 #     model_class: type['Model'] = None
 
 #     def resolve_self(self, arg):
 #         return _unpickle_model(arg, cls=self.model_class)
 
 
-    
 class model_task_method:
     func: abc.Callable = None
     options: dict[str, Any] = None
-    pk_field: str = 'pk'
+    pk_field: str = "pk"
     attr_name = None
     task = None
     model = None
     task: MethodTask
     attr: str
 
-    def __init__(self, func=None, /, attr_name: str=None, **options) -> None:
-        from warnings import warn
-        warn('`model_task_method` is deprecated in favor of `task_method`', DeprecationWarning)
-
+    def __init__(self, func=None, /, attr_name: str = None, **options) -> None:
         if isinstance(func, (BaseTask, Signature)):
             self.task = func
         else:
             self.func, self.attr_name, self.options = func, attr_name, options
-    
+
     def __call__(self, func) -> Self:
         self.func = func
         return self
 
-    def __get__(self, obj: _T_Model, typ: type[_T_Model]=None) -> Signature:
+    def __get__(self, obj: _T_Model, typ: type[_T_Model] = None) -> Signature:
         return self.task.__get__(obj, typ).s()
         # if obj is None:
         #     return self.task
@@ -157,29 +152,33 @@ class model_task_method:
 
     def _register_task(self, cls: type[_T_Model], name: str):
         if self.task:
-            raise TypeError('task already set')
+            raise TypeError("task already set")
         func = self._get_task_func(cls, name)
         self.task = shared_method_task(func, **self._get_task_options(cls, name))
-        
+
     def _get_task_func(self, cls, name):
         func = self.func
         return func
-        
+
     def _get_task_options(self, cls, name):
         opts = self.options
         name = opts.get("__name__") or name
-        qualname = f'{cls.__qualname__}.{name}'
+        qualname = f"{cls.__qualname__}.{name}"
 
         return {
-            'model_class': cls,
-            '__qualname__': qualname,
-            'typing': False,
-            'name': f'{cls.__module__}.{qualname}',
+            "model_class": cls,
+            "__qualname__": qualname,
+            "typing": False,
+            "name": f"{cls.__module__}.{qualname}",
         } | opts
 
     def contribute_to_class(self, cls: type, name: str):
         assert self.func or self.task
         self.task or self._register_task(cls, name)
         setattr(cls, self.attr_name or name, self)
-        logger.warn(f'`model_task_method` is deprecated in favor of `method_task` in {cls.__qualname__}.{name}')
-
+        
+        from warnings import warn
+        warn(
+            f"`model_task_method` is deprecated in favor of `method_task` in {cls.__qualname__}.{name}",
+            DeprecationWarning,
+        )
