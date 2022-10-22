@@ -39,11 +39,11 @@ class Task(BaseTask, Generic[_T, _P, _R]):
 class MethodTask(Task[_T, _P, _R]):
 
     bind_task = None
-    method: str = None
+    method: staticmethod
     typing: bool = False
     attr_name: str = None
     BoundProxy: type['BoundMethodTaskProxy'] = None
-
+    
     def __init_subclass__(cls, **kwargs) -> None:
         if 'run' in cls.__dict__:
             cls.bind_task = not isinstance(cls.__dict__['run'], staticmethod) or cls.bind_task
@@ -54,13 +54,17 @@ class MethodTask(Task[_T, _P, _R]):
                 a, kw = self.resolve_arguments(a, kw)
                 if self.bind_task:
                     a = a[:1] + (self,) + a[1:]
-                return fn(*a, **kw)
+                return self.method(*a, **kw)
+            
             if hasattr(fn, '__wrapped__'):
                 run.__wrapped__ = fn.__wrapped__
             else:
                 del run.__wrapped__
             cls.run = run
+            cls.method = staticmethod(fn)
+
         return super().__init_subclass__(**kwargs)
+
 
     def __get__(self, obj: _T, typ) -> Self:
         if obj is None:
