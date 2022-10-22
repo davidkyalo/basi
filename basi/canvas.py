@@ -20,7 +20,12 @@ def run_in_worker(func: abc.Callable[_P, _R], *args: _P.args, **kwargs: _P.kwarg
     return func(*args, **kwargs)
 
 
-@shared_task()
+
+def _apply_async(self, *a, **kw):
+    return self.apply(*a, **kw)
+    
+
+@shared_task(apply=_apply_async)
 def identity(obj: _T=None):
     return obj
 
@@ -31,3 +36,9 @@ class forward_ref(Signature):
         if not kwargs and len(args) < 2:
             return cls(identity, args, kwargs, subtask_type='forward_ref')
         return super().__new__(*args, **kwargs)
+    
+    apply_async = _apply_async
+
+
+
+del _apply_async
