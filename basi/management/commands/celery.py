@@ -29,21 +29,14 @@ class Command(BaseCommand):
             dest="use_reloader",
             help="Tells Django to NOT use the auto-reloader.",
         )
-        parser.add_argument(
-            '-l', '--loglevel',
-            choices=['DEBUG','INFO','WARNING','ERROR','CRITICAL','FATAL'],
-            dest="loglevel",
-            default=None,
-            help="Logging level",
-        )
 
     def handle(self, **options):
         command = options['command']
         args = sys.argv[2:]
         
         options["use_reloader"] = options["use_reloader"] and command in self.reload_commands
-        if  options['loglevel'] is None:
-            args = [*args, '-l', 'DEBUG' if settings.DEBUG else 'INFO']
+        # if options['loglevel'] is None:
+        #     args = [*args, '-l', 'DEBUG' if settings.DEBUG else 'INFO']
         self.run(*args, **options)
 
     def run(self, *args, **options):

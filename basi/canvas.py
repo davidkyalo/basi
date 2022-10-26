@@ -15,17 +15,24 @@ _P = ParamSpec('_P')
 _R = TypeVar('_R')
 _T = TypeVar('_T')
 
-@shared_task()
-def run_in_worker(func: abc.Callable[_P, _R], *args: _P.args, **kwargs: _P.kwargs) -> _R:
-    return func(*args, **kwargs)
-
 
 
 def _apply_async(self, *a, **kw):
     return self.apply(*a, **kw)
     
 
-@shared_task(apply=_apply_async)
+
+@shared_task(name=f'{__package__}.run_in_worker')
+def run_in_worker(func: abc.Callable[_P, _R], *args: _P.args, **kwargs: _P.kwargs) -> _R:
+    return func(*args, **kwargs)
+
+
+@shared_task(name=f'{__package__}.throw', apply_async=_apply_async)
+def throw(cls: type[Exception], *args: _P.args, **kwargs: _P.kwargs):
+    raise (cls if isinstance(cls, Exception) else cls(*args, **kwargs))
+
+
+@shared_task(name=f'{__package__}.identity', apply_async=_apply_async)
 def identity(obj: _T=None):
     return obj
 
@@ -35,7 +42,7 @@ class forward_ref(Signature):
     def __new__(cls: type[Self], *args, **kwargs) -> Self:
         if not kwargs and len(args) < 2:
             return cls(identity, args, kwargs, subtask_type='forward_ref')
-        return super().__new__(*args, **kwargs)
+        return Signature.__new__(cls, *args, **kwargs)
     
     apply_async = _apply_async
 

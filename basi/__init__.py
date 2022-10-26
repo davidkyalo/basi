@@ -10,7 +10,6 @@ from .serializers import SupportsPersistentPickle
 
 current_task: Task
 
-# shared_task = abc.Callable[..., Task]
 
 
 DEFAULT_NAMESPACE = os.getenv('BASI_NAMESPACE', 'CELERY')
@@ -45,10 +44,11 @@ def shared_method_task(fn=None, /, *args, base=MethodTask, **options):
         return shared_task(func, *args, **{'name': f'{func.__module__}.{func.__qualname__}'} | options)
     return decorator if fn is None else decorator(fn)
 
-if TYPE_CHECKING:
-    shared_method_task = shared_task
-
 bus: Bus = Proxy(get_current_app)
 app = bus
 
 
+
+if TYPE_CHECKING:
+    shared_task = bus.task
+    shared_method_task = bus.method_task
