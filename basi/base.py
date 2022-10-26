@@ -89,6 +89,14 @@ class MethodTask(Task[_T, _P, _R]):
 
 
 
+class ClassMethodTask(MethodTask[_T, _P, _R]):
+
+    def __get__(self, obj: Optional[_T], typ: type[_T]) -> Self:
+        return self.get_bound_instance(typ if obj is None else obj.__class__)
+
+
+
+
 class BoundMethodTaskProxy(Proxy, (MethodTask[_T, _P, _R] if TYPE_CHECKING else Generic[_T, _P, _R])):
 
     __slots__ = ()
@@ -277,6 +285,51 @@ class Bus(Celery):
         if get_bound_instance:
             opts['get_bound_instance'] = get_bound_instance
         def decorator(func: abc.Callable[_P, _R]) -> MethodTask[_T, _P, _R]:
+            return self.task(*args, **{'name': f'{func.__module__}.{func.__qualname__}'} | opts)(func)
+        if fn is None:
+            return decorator
+        else:
+            return decorator(fn)
+
+
+    @overload
+    def class_method_task(self, fn: abc.Callable[Concatenate[type[_T], _P], _R], /, *args, base=ClassMethodTask[_T, _P, _R], get_bound_instance=None, **opts) -> ClassMethodTask[_T, _P, _R]:...
+    @overload
+    def class_method_task(self, fn: None=None, /, *args, base=ClassMethodTask[_T, _P, _R], get_bound_instance=None, **opts) -> abc.Callable[[abc.Callable[Concatenate[type[_T], _P], _R]], ClassMethodTask[_T, _P, _R]]: ...
+    def class_method_task(self, fn: Optional[abc.Callable[Concatenate[type[_T], _P], _R]]=None, /, *args, base=ClassMethodTask[_T, _P, _R], get_bound_instance=None, **opts):
+        """Decorator to create a MethodTask class out of any callable.
+
+        See :ref:`Task options<task-options>` for a list of the
+        arguments that can be passed to this decorator.
+
+        Examples:
+            .. code-block:: python
+
+                @app.method_task
+                def refresh_feed(url):
+                    store_feed(feedparser.parse(url))
+
+            with setting extra options:
+
+            .. code-block:: python
+
+                @app.method_task(exchange='feeds')
+                def refresh_feed(url):
+                    return store_feed(feedparser.parse(url))
+
+        Note:
+            App Binding: For custom apps the task decorator will return
+            a proxy object, so that the act of creating the task is not
+            performed until the task is used or the task registry is accessed.
+
+            If you're depending on binding to be deferred, then you must
+            not access any attributes on the returned object until the
+            application is fully set up (finalized).
+        """
+        opts['base'] = base or ClassMethodTask
+        if get_bound_instance:
+            opts['get_bound_instance'] = get_bound_instance
+        def decorator(func: abc.Callable[Concatenate[type[_T], _P], _R]) -> ClassMethodTask[_T, _P, _R]:
             return self.task(*args, **{'name': f'{func.__module__}.{func.__qualname__}'} | opts)(func)
         if fn is None:
             return decorator
