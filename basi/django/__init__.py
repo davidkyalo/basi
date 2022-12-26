@@ -10,6 +10,7 @@ from typing_extensions import Self
 from django import setup as dj_setup
 from django.apps import apps
 from django.conf import settings
+from django.utils.module_loading import autodiscover_modules
 from celery.local import Proxy
 from celery import Task as BaseTask
 from celery.canvas import Signature, signature

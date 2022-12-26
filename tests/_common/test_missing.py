@@ -10,7 +10,7 @@ xfail = pytest.mark.xfail
 parametrize = pytest.mark.parametrize
 
 
-class MissingTypeTests:
+class test_MissingType:
     def test_basic(self):
         assert not Missing
         assert isinstance(Missing, MissingType)

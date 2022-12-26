@@ -1,26 +1,26 @@
-from collections import abc
+from collections import ChainMap, abc
 from functools import cache, cached_property, wraps
 from logging import Logger
 from types import FunctionType, GenericAlias, MethodType
 from typing import TYPE_CHECKING, Any, Generic, Literal, Optional, TypeVar, Union, overload
-from typing_extensions import Self, ParamSpec, Concatenate
-from celery import Celery, Task as BaseTask
-from celery.canvas import Signature
-from celery.app import push_current_task, pop_current_task
+
+from celery import Celery
+from celery.app import pop_current_task, push_current_task
 from celery.app.base import gen_task_name
-from celery.worker.request import Context
+from celery.app.task import Context
+from celery.app.task import Task as BaseTask
+from celery.canvas import Signature
 from celery.local import Proxy
 from celery.utils.log import get_task_logger
+from typing_extensions import Concatenate, ParamSpec, Self
 
 from basi._common import import_string
 
-
 _missing = object()
-_T = TypeVar('_T')
-_R = TypeVar('_R')
-_P = ParamSpec('_P')
+_T = TypeVar("_T")
+_R = TypeVar("_R")
+_P = ParamSpec("_P")
 
-BaseTask.__class_getitem__ = classmethod(lambda cls, *args, **kwargs: cls)
 
 class Task(BaseTask, Generic[_T, _P, _R]):
 
@@ -35,36 +35,36 @@ class Task(BaseTask, Generic[_T, _P, _R]):
         return get_task_logger(self.__module__)
 
 
-
 class MethodTask(Task[_T, _P, _R]):
 
     bind_task = None
     method: staticmethod
     typing: bool = False
     attr_name: str = None
-    BoundProxy: type['BoundMethodTaskProxy'] = None
-    
+    BoundProxy: type["BoundMethodTaskProxy"] = None
+
     def __init_subclass__(cls, **kwargs) -> None:
-        if 'run' in cls.__dict__:
-            cls.bind_task = not isinstance(cls.__dict__['run'], staticmethod) or cls.bind_task
-            fn = cls.run
-            @wraps(fn)
-            def run(self: Self=..., /, *a: _P.args, **kw: _P.kwargs):
-                nonlocal fn
+        if "run" in cls.__dict__:
+            cls.bind_task = not isinstance(cls.__dict__["run"], staticmethod) or cls.bind_task
+            xrun, xcall = cls.run, cls.__call__
+
+            def run(*a, **kw):
+                nonlocal xrun
+                self, a = a[0], a[1:]
                 a, kw = self.resolve_arguments(a, kw)
                 if self.bind_task:
                     a = a[:1] + (self,) + a[1:]
                 return self.method(*a, **kw)
-            
-            if hasattr(fn, '__wrapped__'):
-                run.__wrapped__ = fn.__wrapped__
-            else:
-                del run.__wrapped__
+
+            # def __call__(self: Task, *a, **kw):
+            #     nonlocal xcall
+            #     return xcall(self, *a, **kw)
+
             cls.run = run
-            cls.method = staticmethod(fn)
+            # cls.__call__ = __call__
+            cls.method = staticmethod(xrun)
 
         return super().__init_subclass__(**kwargs)
-
 
     def __get__(self, obj: _T, typ) -> Self:
         if obj is None:
@@ -77,75 +77,111 @@ class MethodTask(Task[_T, _P, _R]):
     def resolve_arguments(self, /, args, kwargs):
         __self__ = self.resolve_self(args, kwargs)
         if not __self__ is _missing:
-            args = (__self__,)  + args
+            args = (__self__,) + args
         return args, kwargs
 
     def resolve_self(self, args: tuple, kwargs: dict):
-        return kwargs.pop('__self__', _missing)
+        return kwargs.pop("__self__", _missing)
 
     def contribute_to_class(self, cls, name):
         setattr(cls, self.attr_name or name, self)
 
+    # def apply(self, *a, **kw):
+    #     pp(a, kw)
+    #     return super().apply(*a, **kw)
 
+    # def apply_async(self, *a, **kw):
+    #     kw.update(xxx__APPLY_ASYNC__xxx="___apply_async___")
+    #     pp(a, kw)
+    #     return super().apply_async(*a, **kw)
 
 
 class ClassMethodTask(MethodTask[_T, _P, _R]):
-
     def __get__(self, obj: Optional[_T], typ: type[_T]) -> Self:
         return self.get_bound_instance(typ if obj is None else obj.__class__)
 
 
-
-
-class BoundMethodTaskProxy(Proxy, (MethodTask[_T, _P, _R] if TYPE_CHECKING else Generic[_T, _P, _R])):
+class BoundMethodTaskProxy(
+    Proxy, (MethodTask[_T, _P, _R] if TYPE_CHECKING else Generic[_T, _P, _R])
+):
 
     __slots__ = ()
 
-    def __init__(self, task: MethodTask, obj: _T=_missing, /, **kwargs):
-        super().__init__(task, kwargs={ '__self__': obj } | kwargs)
+    def __init__(self, task: MethodTask, obj: _T = _missing, /, **kwargs):
+        super().__init__(task, kwargs={"__self__": obj} | kwargs)
 
     def _get_current_object(self) -> MethodTask:
-        return object.__getattribute__(self, '_Proxy__local')
+        return object.__getattribute__(self, "_Proxy__local")
 
     def _get_current_kwargs(self, kwargs=None):
-        return object.__getattribute__(self, '_Proxy__kwargs') | (kwargs or {})
-    
-    if not TYPE_CHECKING:
-        def s(self, *args, **kwargs):
-            return self.signature(args, kwargs)
-        
-        def si(self, *args, **kwargs):
-            return self.signature(args, kwargs, immutable=True)
+        return object.__getattribute__(self, "_Proxy__kwargs") | (kwargs or {})
 
-        def signature(self, args=None, kwargs=None, *starargs, **starkwargs):
-            kwargs = self._get_current_kwargs(kwargs)
-            return self._get_current_object().signature(args, kwargs, *starargs, **starkwargs)
-        
-        subtask = signature
+    def s(self, *args, **kwargs):
+        return self.signature(args, kwargs)
 
-        def delay(self, *args, **kwargs):
-            return self.apply_async(args, kwargs)
-        
-        @overload
-        def apply(self, args=None, kwargs=None, link=None, link_error=None, task_id=None, retries=None, throw=None, logfile=None, loglevel=None, headers=None, **options): ...
-        def apply(self, args=None, kwargs=None, *__args, **options):
-            kwargs = self._get_current_kwargs(kwargs)
-            return self._get_current_object().apply(args, kwargs, *__args, **options)
+    def si(self, *args, **kwargs):
+        return self.signature(args, kwargs, immutable=True)
 
-        @overload
-        def apply_async(self, args=None, kwargs=None, task_id=None, producer=None, link=None, link_error=None, shadow=None, **options):...
-        def apply_async(self, args=None, kwargs=None, *__args, **options):
-            kwargs = self._get_current_kwargs(kwargs)
-            return self._get_current_object().apply_async(args, kwargs, *__args, **options)
+    def signature(self, args=None, kwargs=None, *starargs, **starkwargs):
+        kwargs = self._get_current_kwargs(kwargs)
+        return self._get_current_object().signature(args, kwargs, *starargs, **starkwargs)
 
-        def __call__(self, *args: _P.args, **kwargs: _P.kwargs) -> _R:
-            kwargs = self._get_current_kwargs(kwargs)
-            return self._get_current_object()(*args, **kwargs)
+    subtask = signature
 
+    def delay(self, *args, **kwargs):
+        return self.apply_async(args, kwargs)
+
+    @overload
+    def apply(
+        self,
+        args=None,
+        kwargs=None,
+        link=None,
+        link_error=None,
+        task_id=None,
+        retries=None,
+        throw=None,
+        logfile=None,
+        loglevel=None,
+        headers=None,
+        **options,
+    ):
+        ...
+
+    def apply(self, args=None, kwargs=None, *__args, **options):
+        kwargs = self._get_current_kwargs(kwargs)
+        return self._get_current_object().apply(args, kwargs, *__args, **options)
+
+    @overload
+    def apply_async(
+        self,
+        args=None,
+        kwargs=None,
+        task_id=None,
+        producer=None,
+        link=None,
+        link_error=None,
+        shadow=None,
+        **options,
+    ):
+        ...
+
+    def apply_async(self, args=None, kwargs=None, *__args, **options):
+        kwargs = self._get_current_kwargs(kwargs)
+        return self._get_current_object().apply_async(args, kwargs, *__args, **options)
+
+    def __call__(self, *args: _P.args, **kwargs: _P.kwargs) -> _R:
+        kwargs = self._get_current_kwargs(kwargs)
+        return self._get_current_object()(*args, **kwargs)
+
+    def signature_from_request(self, request=None, args=None, kwargs=None, *__args, **options):
+        kwargs = self._get_current_kwargs(kwargs)
+        return self._get_current_object().signature_from_request(
+            request, args, kwargs, *__args, **options
+        )
 
 
 MethodTask.BoundProxy = BoundMethodTaskProxy
-
 
 
 class Bus(Celery):
@@ -181,13 +217,9 @@ class Bus(Celery):
 
         if isinstance(task_cls, str):
             task_cls = import_string(task_cls)
-        
-        super().__init__(
-            *args,
-            task_cls=task_cls,
-            **kwargs
-        )
-        
+
+        super().__init__(*args, task_cls=task_cls, **kwargs)
+
     def get_workspace_prefix(self) -> Union[str, None]:
         return ""
 
@@ -248,10 +280,38 @@ class Bus(Celery):
         return super().send_task(name, *args, **kwds)
 
     @overload
-    def method_task(self, fn: abc.Callable[Concatenate[_T, _P], _R], /, *args, base=MethodTask[_T, _P, _R], get_bound_instance=None, **opts) -> MethodTask[_T, _P, _R]:...
+    def method_task(
+        self,
+        fn: abc.Callable[Concatenate[_T, _P], _R],
+        /,
+        *args,
+        base=MethodTask[_T, _P, _R],
+        get_bound_instance=None,
+        **opts,
+    ) -> MethodTask[_T, _P, _R]:
+        ...
+
     @overload
-    def method_task(self, fn: None=None, /, *args, base=MethodTask[_T, _P, _R], get_bound_instance=None, **opts) -> abc.Callable[[abc.Callable[Concatenate[_T, _P], _R]], MethodTask[_T, _P, _R]]: ...
-    def method_task(self, fn: Optional[abc.Callable[Concatenate[_T, _P], _R]]=None, /, *args, base=MethodTask[_T, _P, _R], get_bound_instance=None, **opts):
+    def method_task(
+        self,
+        fn: None = None,
+        /,
+        *args,
+        base=MethodTask[_T, _P, _R],
+        get_bound_instance=None,
+        **opts,
+    ) -> abc.Callable[[abc.Callable[Concatenate[_T, _P], _R]], MethodTask[_T, _P, _R]]:
+        ...
+
+    def method_task(
+        self,
+        fn: Optional[abc.Callable[Concatenate[_T, _P], _R]] = None,
+        /,
+        *args,
+        base=MethodTask[_T, _P, _R],
+        get_bound_instance=None,
+        **opts,
+    ):
         """Decorator to create a MethodTask class out of any callable.
 
         See :ref:`Task options<task-options>` for a list of the
@@ -281,22 +341,53 @@ class Bus(Celery):
             not access any attributes on the returned object until the
             application is fully set up (finalized).
         """
-        opts['base'] = base or MethodTask
+        opts["base"] = base or MethodTask
         if get_bound_instance:
-            opts['get_bound_instance'] = get_bound_instance
+            opts["get_bound_instance"] = get_bound_instance
+
         def decorator(func: abc.Callable[_P, _R]) -> MethodTask[_T, _P, _R]:
-            return self.task(*args, **{'name': f'{func.__module__}.{func.__qualname__}'} | opts)(func)
+            return self.task(*args, **{"name": f"{func.__module__}.{func.__qualname__}"} | opts)(
+                func
+            )
+
         if fn is None:
             return decorator
         else:
             return decorator(fn)
 
+    @overload
+    def class_method_task(
+        self,
+        fn: abc.Callable[Concatenate[type[_T], _P], _R],
+        /,
+        *args,
+        base=ClassMethodTask[_T, _P, _R],
+        get_bound_instance=None,
+        **opts,
+    ) -> ClassMethodTask[_T, _P, _R]:
+        ...
 
     @overload
-    def class_method_task(self, fn: abc.Callable[Concatenate[type[_T], _P], _R], /, *args, base=ClassMethodTask[_T, _P, _R], get_bound_instance=None, **opts) -> ClassMethodTask[_T, _P, _R]:...
-    @overload
-    def class_method_task(self, fn: None=None, /, *args, base=ClassMethodTask[_T, _P, _R], get_bound_instance=None, **opts) -> abc.Callable[[abc.Callable[Concatenate[type[_T], _P], _R]], ClassMethodTask[_T, _P, _R]]: ...
-    def class_method_task(self, fn: Optional[abc.Callable[Concatenate[type[_T], _P], _R]]=None, /, *args, base=ClassMethodTask[_T, _P, _R], get_bound_instance=None, **opts):
+    def class_method_task(
+        self,
+        fn: None = None,
+        /,
+        *args,
+        base=ClassMethodTask[_T, _P, _R],
+        get_bound_instance=None,
+        **opts,
+    ) -> abc.Callable[[abc.Callable[Concatenate[type[_T], _P], _R]], ClassMethodTask[_T, _P, _R]]:
+        ...
+
+    def class_method_task(
+        self,
+        fn: Optional[abc.Callable[Concatenate[type[_T], _P], _R]] = None,
+        /,
+        *args,
+        base=ClassMethodTask[_T, _P, _R],
+        get_bound_instance=None,
+        **opts,
+    ):
         """Decorator to create a MethodTask class out of any callable.
 
         See :ref:`Task options<task-options>` for a list of the
@@ -326,20 +417,21 @@ class Bus(Celery):
             not access any attributes on the returned object until the
             application is fully set up (finalized).
         """
-        opts['base'] = base or ClassMethodTask
+        opts["base"] = base or ClassMethodTask
         if get_bound_instance:
-            opts['get_bound_instance'] = get_bound_instance
-        def decorator(func: abc.Callable[Concatenate[type[_T], _P], _R]) -> ClassMethodTask[_T, _P, _R]:
-            return self.task(*args, **{'name': f'{func.__module__}.{func.__qualname__}'} | opts)(func)
+            opts["get_bound_instance"] = get_bound_instance
+
+        def decorator(
+            func: abc.Callable[Concatenate[type[_T], _P], _R]
+        ) -> ClassMethodTask[_T, _P, _R]:
+            return self.task(*args, **{"name": f"{func.__module__}.{func.__qualname__}"} | opts)(
+                func
+            )
+
         if fn is None:
             return decorator
         else:
             return decorator(fn)
-
 
 
 Celery = Bus
-
-
-
-

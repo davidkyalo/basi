@@ -11,7 +11,7 @@ xfail = pytest.mark.xfail
 parametrize = pytest.mark.parametrize
 
 
-class ReadonlyDictTests:
+class test_ReadonlyDict:
     def test_basic(self):
         vals = dict(a=1, b=2, c=3)
         dct = ReadonlyDict(vals)
