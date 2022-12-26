@@ -1,7 +1,6 @@
 from ast import arg
 from collections import abc
 from functools import cached_property, partial
-from types import GenericAlias, NoneType
 from typing import TYPE_CHECKING, Any, Final, Generic, TypeVar, Union, cast, overload
 from uuid import uuid4
 
@@ -34,7 +33,7 @@ def _apply_async(self, *a, **kw):
     return self.apply(*a, **kw)
 
 
-def to_eager_result(result: Union[_R, EagerResult], id=None, state=None, traceback=None):
+def _to_result_(result: Union[_R, EagerResult], id=None, state=None, traceback=None):
     rv: EagerResult
     if isinstance(result, AsyncResult):
         assert None is id is state is traceback
@@ -48,12 +47,16 @@ def to_eager_result(result: Union[_R, EagerResult], id=None, state=None, traceba
     return rv
 
 
+def _wait_for_result_(result: EagerResult, *args, **kwds):
+    return result.get(*args, **kwds)
+
+
 @shared_task(name=f"{__package__}.run_in_worker")
 def run_in_worker(func: abc.Callable[_P, _R], *args: _P.args, **kwargs: _P.kwargs) -> _R:
     return func(*args, **kwargs)
 
 
-@shared_task(name=f"{__package__}.wrap", bind=True, apply_async=_apply_async)
+@shared_task(name=f"{__package__}.wrap", bind=True)
 def wrap(self, func: abc.Callable[_P, _R], *args: _P.args, **kwargs: _P.kwargs) -> _R:
     if not callable(func):
         raise TypeError(f"{self.name!r} expected a callable not {func.__class__.__name__!r}")
@@ -63,12 +66,6 @@ def wrap(self, func: abc.Callable[_P, _R], *args: _P.args, **kwargs: _P.kwargs) 
 @shared_task(name=f"{__package__}.throw")
 def throw(cls: type[Exception], *args, **kwargs):
     raise (cls if isinstance(cls, Exception) else cls(*args, **kwargs))
-
-
-# @shared_task(name=f'{__package__}.noop', apply_async=_apply_async)
-# def noop(obj: _T=None, /, *args, **kwargs):
-#     return obj
-# class EagerResult()
 
 
 @CallableTask.register
@@ -86,61 +83,30 @@ class ValuePseudoTask(Generic[_R]):
         return self
 
     def EagerResult(self, tid=None):
-        return to_eager_result(self.result, tid, self.state, self.traceback)
+        return _to_result_(self.result, tid, self.state, self.traceback)
 
     AsyncResult = EagerResult
 
     def delay(self, *args, **kwargs):
         return self.apply(args, kwargs)
 
-    def apply_async(self, *args, **kwargs):
-        return self.apply(*args, **kwargs)
+    def apply_async(self, *a, task_id: str = None, **kw):
+        print(vars())
+        kw["task_id"] = task_id = task_id or self.name or str(uuid4())
+        if kw.get("reply_to"):
+            return wrap.s(_wait_for_result_, self.EagerResult(task_id)).apply_async(*a, **kw)
+        return self.apply(*a, **kw)
 
     def apply(self, args=(), kwargs=None, task_id: str = None, **kwds):
         kwds["task_id"] = task_id = task_id or self.name or str(uuid4())
-        debug(args, task_id, kwds)
         result = self.EagerResult(task_id)
         state = result.state
         if any(not (state != s or kwds.get(k) is None) for s, k in self._wrap_states):
-            return wrap.s(result.get).apply(**kwds)
+            return wrap.s(_wait_for_result_, result).apply(**kwds)
         return result
 
     def __call__(self, *args, **kwds):
         return self.EagerResult().get()
-
-
-@CallableTask.register
-class ThenablePseudoTask(Generic[_R]):
-    """A signature that always executes eagerly."""
-
-    __slots__ = "promise", "name", "result", "state", "traceback", "__weakref__"
-    name: str
-    result: abc.Callable[[], _R]
-
-    def __new__(cls, result: Thenable, state=None, traceback=None, name: str = None):
-        self = object.__new__(cls)
-        self.name, self.result, self.state, self.traceback = name, result, state, traceback
-        return self
-
-    def _set_result(self, result):
-        self.result = result
-
-    def EagerResult(self, tid=None):
-        return to_eager_result(self.result, tid, self.state, self.traceback)
-
-    AsyncResult = EagerResult
-
-    def delay(self, *args, **kwargs):
-        return self.apply(args, kwargs)
-
-    def apply_async(self, *args, **kwargs):
-        return self.apply(*args, **kwargs)
-
-    def apply(self, *args, task_id: str = None, **kwargs):
-        return self.EagerResult(task_id)
-
-    def __call__(self, *args, **kwds):
-        return self.result()
 
 
 class SubtaskType(Signature, Generic[_R]):
@@ -187,6 +153,7 @@ class result(SubtaskType[_R], name="result"):
     def __init__(self, result: _R = None, *args, app=None, **kwargs):
         if not (not app is _empty and isinstance(result, dict) and "subtask_type" in result):
             result = ValuePseudoTask(result, name="result")
+            # kwargs.setdefault('serializer', 'pickle')
         app is _empty or kwargs.update(app=app)
         super().__init__(result, *args, **kwargs)
 

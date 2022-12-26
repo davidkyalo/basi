@@ -1,31 +1,24 @@
 import typing as t
 from collections import abc
 
-from typing_extensions import Concatenate
-from .base import Bus, MethodTask, Task
-from . import get_current_app, bus, app, current_task
+from typing_extensions import Concatenate as Concat
+from .base import Bus, TaskMethod, Task
+from . import get_current_app, bus, app, current_task, current_app
 
 from .base import _P, _R, _T
 
-@t.overload
-def shared_task(fn: abc.Callable[_P, _R], /, **kw) -> Task[_P, _R]:
-    return bus.task()
+_T_Fn = abc.Callable[_P, _R]
 
 @t.overload
-def shared_task(**kw) -> abc.Callable[[abc.Callable[_P, _R]], Task[_P, _R]]:
-    pass
+def shared_task(fn: _T_Fn[_P, _R], /, **kw) -> Task[_P, _R]: ...
+@t.overload
+def shared_task(**kw) -> _T_Fn[[_T_Fn[_P, _R]], Task[_P, _R]]: ...
+
+shared_task = app.task
 
 @t.overload
-def shared_method_task(
-    fn: abc.Callable[Concatenate[_T, _P], _R], /, *a, **kw
-) -> MethodTask[_T, _P, _R]:
-    pass
-
+def task_method(fn: _T_Fn[Concat[_T, _P], _R], /, *a, **kw) -> TaskMethod[_T, _P, _R]: ...
 @t.overload
-def shared_method_task(
-    **kw,
-) -> abc.Callable[[abc.Callable[Concatenate[_T, _P], _R]], MethodTask[_T, _P, _R]]:
-    pass
+def task_method(**kw) -> _T_Fn[[_T_Fn[Concat[_T, _P], _R]], TaskMethod[_T, _P, _R]]: ...
 
-shared_task = bus.task
-shared_method_task = bus.method_task
+task_method = app.task

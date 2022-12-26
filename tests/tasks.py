@@ -1,30 +1,41 @@
 from dataclasses import dataclass, field
-from time import time
+from datetime import datetime
+from time import monotonic_ns, sleep as do_sleep
+from unittest.mock import Mock, _Call
 import pytest
 import typing as t
 
 from celery import Task as BaseTask, Celery, current_task, current_app
-from basi.base import MethodTask, Task
-from basi import shared_method_task
+from basi.base import TaskMethod, Task
+from basi import task_method
 
 
-# app: Celery = current_app._get_current_object()
+class WaitMock(Mock):
+    def wait_for_call(self, call: _Call = None, start=0, timeout=4, sleep=5e-9):
+        initial_calls, count = [*self.call_args_list[:start]], start + 1
+        stop = monotonic_ns() + int(timeout * 1e9)
+        while not (self.call_count >= count or monotonic_ns() > stop):
+            sleep and do_sleep(sleep)
+        assert self.call_count == count, f""
+        call is None or self.assert_has_calls([*initial_calls, call])
 
 
 @dataclass
-class Klass:
-    foo: str = None
-    bar: str = field(default_factory=time)
+class SampleTaskMethods:
+    foo: str = field(default_factory=lambda: datetime.now().time().isoformat())
+    bar: str = field(default_factory=lambda: datetime.now().date().isoformat())
 
-    @shared_method_task
-    def simple_task(self, *args, **kwargs):
-        cls, task, request = self.__class__, current_task, current_task.request
-        assert isinstance(self, cls)
-        return self, args, kwargs
+    mock: t.ClassVar = WaitMock()
 
-    @shared_method_task(bind=True)
-    def bound_task(self, task, *args, **kwargs):
-        cls, request = self.__class__, task.request
-        assert isinstance(self, cls)
-        assert task is cls.bound_task
-        return self, args, kwargs
+    @task_method
+    def method(self, *args, **kwargs):
+        pp()
+        assert isinstance(self, SampleTaskMethods)
+        return self.mock(*args, **kwargs)
+
+    @task_method(bind=True, app=current_app)
+    def bound_method(self, task: TaskMethod, *args, **kwargs):
+        pp()
+        assert isinstance(self, SampleTaskMethods)
+        assert self.__class__.bound_method is task
+        return self.mock(*args, **kwargs)

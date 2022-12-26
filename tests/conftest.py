@@ -1,11 +1,13 @@
 import asyncio
 from inspect import isfunction
 import sys
+from weakref import ref
 
 import pytest
 import typing as t
 
 import builtins
+from basi.testing import TestError
 
 
 def _pp(*lines, label=None, **kw):
@@ -54,6 +56,23 @@ def immutable_attrs(cls):
     return [a for a in dir(cls) if not (a[:2] == "__" == a[-2:] or isfunction(getattr(cls, a)))]
 
 
+_exc_ = 0
+
+
+@pytest.fixture()
+def exception(request: pytest.FixtureRequest, monkeypatch: pytest.MonkeyPatch):
+    global _exc_
+    _exc_ += 1
+    cls = type(
+        f"{request.node.name}[exception-{_exc_:03}]",
+        (TestError,),
+        {"__module__": request.module.__name__, "request": ref(request)},
+    )
+
+    monkeypatch.setattr(request.module, cls.__name__, cls, raising=False)
+    yield cls
+
+
 @pytest.fixture(scope="session")
 def celery_enable_logging():
     return True
@@ -75,10 +94,12 @@ def celery_config(celery_config):
     The config returned by your fixture will then be used
     to configure the :func:`celery_app` fixture.
     """
+
     return {
         **celery_config,
         "event_serializer": "pickle",
         "result_serializer": "pickle",
         "task_serializer": "pickle",
         "accept_content": ["application/json", "application/x-python-serialize"],
+        "task_annotations": {"*": {"trace": True}},
     }

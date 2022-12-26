@@ -21,7 +21,7 @@ from .. import (
     get_current_app,
     Task,
     MethodTask,
-    shared_method_task,
+    task_method,
 )
 
 if TYPE_CHECKING:
@@ -33,9 +33,7 @@ TASKS_MODULE = "tasks"
 logger = getLogger(__package__)
 
 
-def get_default_app(
-    *, setup: Union[bool, abc.Callable] = True, set_prefix=False
-) -> Bus:
+def get_default_app(*, setup: Union[bool, abc.Callable] = True, set_prefix=False) -> Bus:
     if setup is True:
         setup = dj_setup
     setup and setup(set_prefix=set_prefix)
@@ -155,7 +153,7 @@ class model_task_method:
         if self.task:
             raise TypeError("task already set")
         func = self._get_task_func(cls, name)
-        self.task = shared_method_task(func, **self._get_task_options(cls, name))
+        self.task = task_method(func, **self._get_task_options(cls, name))
 
     def _get_task_func(self, cls, name):
         func = self.func
@@ -177,8 +175,9 @@ class model_task_method:
         assert self.func or self.task
         self.task or self._register_task(cls, name)
         setattr(cls, self.attr_name or name, self)
-        
+
         from warnings import warn
+
         warn(
             f"`model_task_method` is deprecated in favor of `method_task` in {cls.__qualname__}.{name}",
             DeprecationWarning,

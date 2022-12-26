@@ -19,11 +19,11 @@ from collections import abc
 from typing import TYPE_CHECKING, TypeVar, overload
 
 import celery
-from celery import current_task
+from celery import current_task, current_app
 from celery.local import Proxy
 
 from ._common import import_string
-from .base import Bus, MethodTask, Task
+from .base import Bus, TaskMethod, Task
 from .serializers import SupportsPersistentPickle
 
 current_task: Task
@@ -76,15 +76,17 @@ class _MethodTaskProxy(Proxy):
         return self._get_current_object().__get__(obj, cls)
 
 
-def shared_method_task(
-    fn=None, /, *args, base=MethodTask, app: celery.Celery = celery.current_app, **options
-):
-    options["base"] = base or MethodTask
+def task_method(fn=None, /, *args, app: celery.Celery = None, base=TaskMethod, **options):
+    options["base"] = base or TaskMethod
     xname = options.pop("name", None)
 
     def decorator(func):
         name = xname or f"{func.__module__}.{func.__qualname__}"
-        task = shared_task(func, *args, name=name, **options)
+        if app is None:
+            task = shared_task(func, *args, name=name, **options)
+        else:
+            task = app.task(func, *args, name=name, **options)
+
         return _MethodTaskProxy(lambda: task)
 
     return decorator if fn is None else decorator(fn)

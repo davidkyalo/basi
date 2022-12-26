@@ -35,7 +35,7 @@ class Task(BaseTask, Generic[_T, _P, _R]):
         return get_task_logger(self.__module__)
 
 
-class MethodTask(Task[_T, _P, _R]):
+class TaskMethod(Task[_T, _P, _R]):
 
     bind_task = None
     method: staticmethod
@@ -43,28 +43,23 @@ class MethodTask(Task[_T, _P, _R]):
     attr_name: str = None
     BoundProxy: type["BoundMethodTaskProxy"] = None
 
-    def __init_subclass__(cls, **kwargs) -> None:
+    def __init_subclass__(cls, **opts) -> None:
         if "run" in cls.__dict__:
             cls.bind_task = not isinstance(cls.__dict__["run"], staticmethod) or cls.bind_task
-            xrun, xcall = cls.run, cls.__call__
+            # cls.run = staticmethod(cls.run)
+            xrun = cls.run
 
-            def run(*a, **kw):
+            def run(self: TaskMethod, *args, **kwargs):
                 nonlocal xrun
-                self, a = a[0], a[1:]
-                a, kw = self.resolve_arguments(a, kw)
+                args, kwargs = self.resolve_arguments(args, kwargs)
                 if self.bind_task:
-                    a = a[:1] + (self,) + a[1:]
-                return self.method(*a, **kw)
-
-            # def __call__(self: Task, *a, **kw):
-            #     nonlocal xcall
-            #     return xcall(self, *a, **kw)
+                    args = args[:1] + (self,) + args[1:]
+                return self.method(*args, **kwargs)
 
             cls.run = run
-            # cls.__call__ = __call__
             cls.method = staticmethod(xrun)
 
-        return super().__init_subclass__(**kwargs)
+        return super().__init_subclass__(**opts)
 
     def __get__(self, obj: _T, typ) -> Self:
         if obj is None:
@@ -86,31 +81,51 @@ class MethodTask(Task[_T, _P, _R]):
     def contribute_to_class(self, cls, name):
         setattr(cls, self.attr_name or name, self)
 
-    # def apply(self, *a, **kw):
-    #     pp(a, kw)
-    #     return super().apply(*a, **kw)
+    # def __call__(self: Self, *args, __self__=_missing, **kwargs):
+    #     if not __self__ is _missing:
+    #         if self.bind_task:
+    #             _args = __self__, self
+    #         else:
+    #             _args = (__self__,)
+    #     elif self.bind_task:
+    #         _args = (self,)
+    #     else:
+    #         _args = ()
+    #     pp()
+    #     return super().__call__(*_args, *args, **kwargs)
 
-    # def apply_async(self, *a, **kw):
-    #     kw.update(xxx__APPLY_ASYNC__xxx="___apply_async___")
-    #     pp(a, kw)
-    #     return super().apply_async(*a, **kw)
+    # def apply(self, args=(), kwargs: dict = None, *a, **kw):
+    #     if kwargs is None:
+    #         kwargs = {}
+    #     elif not (this := kwargs.pop("__self__", _missing)) is _missing:
+    #         args = (this,) + args
+    #     pp()
+    #     return super().apply(args, kwargs, *a, **kw)
+
+    # def apply_async(self, args=(), kwargs: dict = None, *a, **kw):
+    #     if kwargs is None:
+    #         kwargs = {}
+    #     elif not (this := kwargs.pop("__self__", _missing)) is _missing:
+    #         args = (this,) + args
+    #     pp()
+    #     return super().apply_async(args, kwargs, *a, **kw)
 
 
-class ClassMethodTask(MethodTask[_T, _P, _R]):
+class ClassMethodTask(TaskMethod[_T, _P, _R]):
     def __get__(self, obj: Optional[_T], typ: type[_T]) -> Self:
         return self.get_bound_instance(typ if obj is None else obj.__class__)
 
 
 class BoundMethodTaskProxy(
-    Proxy, (MethodTask[_T, _P, _R] if TYPE_CHECKING else Generic[_T, _P, _R])
+    Proxy, (TaskMethod[_T, _P, _R] if TYPE_CHECKING else Generic[_T, _P, _R])
 ):
 
     __slots__ = ()
 
-    def __init__(self, task: MethodTask, obj: _T = _missing, /, **kwargs):
+    def __init__(self, task: TaskMethod, obj: _T = _missing, /, **kwargs):
         super().__init__(task, kwargs={"__self__": obj} | kwargs)
 
-    def _get_current_object(self) -> MethodTask:
+    def _get_current_object(self) -> TaskMethod:
         return object.__getattribute__(self, "_Proxy__local")
 
     def _get_current_kwargs(self, kwargs=None):
@@ -181,7 +196,7 @@ class BoundMethodTaskProxy(
         )
 
 
-MethodTask.BoundProxy = BoundMethodTaskProxy
+TaskMethod.BoundProxy = BoundMethodTaskProxy
 
 
 class Bus(Celery):
@@ -285,10 +300,10 @@ class Bus(Celery):
         fn: abc.Callable[Concatenate[_T, _P], _R],
         /,
         *args,
-        base=MethodTask[_T, _P, _R],
+        base=TaskMethod[_T, _P, _R],
         get_bound_instance=None,
         **opts,
-    ) -> MethodTask[_T, _P, _R]:
+    ) -> TaskMethod[_T, _P, _R]:
         ...
 
     @overload
@@ -297,10 +312,10 @@ class Bus(Celery):
         fn: None = None,
         /,
         *args,
-        base=MethodTask[_T, _P, _R],
+        base=TaskMethod[_T, _P, _R],
         get_bound_instance=None,
         **opts,
-    ) -> abc.Callable[[abc.Callable[Concatenate[_T, _P], _R]], MethodTask[_T, _P, _R]]:
+    ) -> abc.Callable[[abc.Callable[Concatenate[_T, _P], _R]], TaskMethod[_T, _P, _R]]:
         ...
 
     def method_task(
@@ -308,7 +323,7 @@ class Bus(Celery):
         fn: Optional[abc.Callable[Concatenate[_T, _P], _R]] = None,
         /,
         *args,
-        base=MethodTask[_T, _P, _R],
+        base=TaskMethod[_T, _P, _R],
         get_bound_instance=None,
         **opts,
     ):
@@ -341,11 +356,11 @@ class Bus(Celery):
             not access any attributes on the returned object until the
             application is fully set up (finalized).
         """
-        opts["base"] = base or MethodTask
+        opts["base"] = base or TaskMethod
         if get_bound_instance:
             opts["get_bound_instance"] = get_bound_instance
 
-        def decorator(func: abc.Callable[_P, _R]) -> MethodTask[_T, _P, _R]:
+        def decorator(func: abc.Callable[_P, _R]) -> TaskMethod[_T, _P, _R]:
             return self.task(*args, **{"name": f"{func.__module__}.{func.__qualname__}"} | opts)(
                 func
             )
