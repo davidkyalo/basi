@@ -121,4 +121,4 @@ class test_TaskMethod:
         val = res.get(timeout=8)
         mock.wait_for_call(call(*a, **kw))
         assert val == [a[0], mock.return_value]
-        assert 0
+        # assert 0
