@@ -17,7 +17,7 @@ import os
 import typing as t
 from collections import abc
 from types import new_class
-from typing import TYPE_CHECKING, TypeVar, overload
+from typing import TypeVar
 
 import celery
 from celery import current_app, current_task, shared_task
@@ -93,7 +93,7 @@ def task_method(fn=None, /, *args, name: str=None, app: celery.Celery = None, bi
 
             .. code-block:: python
 
-                @task_method(exchange='feeds')
+                @task_method(exchange='feeds', app=celery_app)
                 def refresh_feed(url):
                     return store_feed(feedparser.parse(url))
 

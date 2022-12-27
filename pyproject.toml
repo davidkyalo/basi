@@ -57,6 +57,13 @@ mike = "*"
 mkdocstrings = {version = "*", extras = ["python"]}
 
 
+[tool.poetry.group.dev]
+optional = true
+
+
+[tool.poetry.group.dev.dependencies]
+black = "^22.12.0"
+
 
 
 [tool.pytest.ini_options]
@@ -82,14 +89,6 @@ exclude_lines = [
     "class .*\\bProtocol\\):",
     "@(abc\\.)?abstractmethod",
 ]
-
-[tool.coverage.run]
-omit = [
-    "*/tests/*",
-    "*/tests.py",
-]
-
-
 
 
 
