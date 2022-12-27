@@ -1,4 +1,5 @@
 import asyncio
+from contextlib import suppress
 from inspect import isfunction
 import sys
 from weakref import ref
@@ -10,7 +11,7 @@ import builtins
 from basi.testing import TestError
 
 
-def _pp(*lines, label="", **kw):
+def _pp(*lines, label=None, **kw):
     from pprint import pformat
 
     fr = sys._getframe(1)
@@ -18,11 +19,11 @@ def _pp(*lines, label="", **kw):
     kw.setdefault("indent", 2)
     kw.setdefault("depth", 8)
     ln = 100
-    code = getattr(fr, "f_code", None)
-    if code and hasattr(code, "co_name"):
-        label = (
-            label or f"{fr.f_globals['__name__']}::{getattr(code, 'co_qualname', code.co_name)}"
-        )
+    if not label:
+        with suppress():
+            label = fr.f_globals["__name__"]
+            label = f"{label}::{getattr(fr.f_code, 'co_qualname',fr.f_code.co_name)}"
+
     print("")
     print("-" * 120)
     print(f"{f' {label} ':-^120}")
@@ -30,9 +31,8 @@ def _pp(*lines, label="", **kw):
     for ln in lines or [fr.f_locals]:
         print(" ", pformat(ln, **kw).replace("\n", "\n  "))
     print("-" * 120)
-
-    fname = getattr(code, "co_filename", "")
-    print(f"{f' {fname}:{fr.f_lineno} ':<120}")
+    with suppress():
+        print(f"{f' {fr.f_code.co_filename}:{fr.f_lineno} ':<120}")
     print("=" * 120)
 
 
