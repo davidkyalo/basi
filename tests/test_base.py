@@ -13,7 +13,7 @@ from celery.canvas import group
 from celery.result import AsyncResult
 from basi.base import TaskMethod, Task
 from basi.canvas import result, throw, wrap
-from basi.testing import AnyThing
+from basi.testing import AnyThing, TestError
 from celery.app.task import Context
 
 if t.TYPE_CHECKING:
@@ -90,15 +90,15 @@ class test_TaskMethod:
         assert val == a[0]
 
     @pytest.mark.parametrize("mode", ["apply", "delay"])
-    def test_as_link_error(self, mode, obj: "SampleTaskMethods", exception):
+    def test_as_link_error(self, mode, obj: "SampleTaskMethods"):
         a, kw, mock = self.args, self.kwargs, obj.mock
-        error, task_id = exception(), uuid4()
+        error, task_id = TestError(), uuid4()
 
         parent = result(error).set(task_id=task_id)
 
         parent.link_error(obj.method.s(*a, **kw))
         res: AsyncResult = getattr(parent, mode)()
-        with pytest.raises(exception):
+        with pytest.raises(TypeError):
             res.get()
         req = AnyThing(lambda v: v.id == task_id, spec=Context)
         mock.wait_for_call(call(req, error, res.traceback, *a, **kw))
