@@ -29,13 +29,11 @@ class SampleTaskMethods:
 
     @task_method
     def method(self, *args, **kwargs):
-        pp()
         assert isinstance(self, SampleTaskMethods)
         return self.mock(*args, **kwargs)
 
     @task_method(bind=True, app=current_app)
     def bound_method(self, task: TaskMethod, *args, **kwargs):
-        pp()
         assert isinstance(self, SampleTaskMethods)
         assert self.__class__.bound_method is task
         return self.mock(*args, **kwargs)
