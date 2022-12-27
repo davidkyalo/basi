@@ -10,7 +10,7 @@ import builtins
 from basi.testing import TestError
 
 
-def _pp(*lines, label=None, **kw):
+def _pp(*lines, label="", **kw):
     from pprint import pformat
 
     fr = sys._getframe(1)
@@ -18,10 +18,11 @@ def _pp(*lines, label=None, **kw):
     kw.setdefault("indent", 2)
     kw.setdefault("depth", 8)
     ln = 100
-    label = (
-        label
-        or f"{fr.f_globals['__name__']}::{getattr(fr.f_code, 'co_qualname',fr.f_code.co_name)}"
-    )
+    code = getattr(fr, "f_code", None)
+    if code and hasattr(code, "co_name"):
+        label = (
+            label or f"{fr.f_globals['__name__']}::{getattr(code, 'co_qualname', code.co_name)}"
+        )
     print("")
     print("-" * 120)
     print(f"{f' {label} ':-^120}")
@@ -29,7 +30,9 @@ def _pp(*lines, label=None, **kw):
     for ln in lines or [fr.f_locals]:
         print(" ", pformat(ln, **kw).replace("\n", "\n  "))
     print("-" * 120)
-    print(f"{f' {fr.f_code.co_filename}:{fr.f_lineno} ':<120}")
+
+    fname = getattr(code, "co_filename", "")
+    print(f"{f' {fname}:{fr.f_lineno} ':<120}")
     print("=" * 120)
 
 
