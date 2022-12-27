@@ -4,12 +4,12 @@ import pytest as pt
 
 
 class TestError(Exception):
-    request: ReferenceType[pt.FixtureRequest]
+    request: ReferenceType[pt.FixtureRequest] = staticmethod(lambda: None)
 
     def __init__(self, *args: object) -> None:
         if req := not args and self.request():
             args = (f"xraised: {req.node.nodeid}",)
-        super().__init__(*args or ("xraised"))
+        super().__init__(*args or ("xraised",))
 
     def __hash__(self) -> int:
         return hash(self.args)

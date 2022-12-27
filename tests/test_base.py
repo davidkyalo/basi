@@ -98,7 +98,7 @@ class test_TaskMethod:
 
         parent.link_error(obj.method.s(*a, **kw))
         res: AsyncResult = getattr(parent, mode)()
-        with pytest.raises(TypeError):
+        with pytest.raises(TestError):
             res.get()
         req = AnyThing(lambda v: v.id == task_id, spec=Context)
         mock.wait_for_call(call(req, error, res.traceback, *a, **kw))
