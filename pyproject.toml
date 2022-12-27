@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "basi"
-version = "0.5.8"
+version = "0.6.0a0"
 description = "Distributed tasks and signals"
 authors = ["David Kyalo <davidmkyalo@gmail.com>"]
 license = "MIT"
@@ -15,7 +15,6 @@ classifiers = [
     "Programming Language :: Python :: 3.10",
 ]
 packages = [{ include = "basi" }]
-# include = [{ path = "basi/**/*.so", format = "wheel" }]
 
 [build-system]
 requires = [
@@ -23,9 +22,6 @@ requires = [
 ]
 build-backend = "poetry.core.masonry.api"
 
-# [tool.poetry.build]
-# generate-setup-file = false
-# script = "build.py"
 
 [tool.poetry.dependencies]
 python = "^3.9"
@@ -33,26 +29,32 @@ celery = "^5.2.7"
 typing-extensions = "^4.1.1"
 attrs = "^21.4.0"
 blinker = "^1.4"
-Django = "^4.0.6"
+Django = "*"
 celery-types = "^0.14.0"
 
 
-[tool.poetry.dev-dependencies]
-pytest = "^7.1.1"
-pytest-asyncio = "^0.18.3"
+
+[tool.poetry.group.test]
+optional = true
+
+
+[tool.poetry.group.test.dependencies]
+pytest = "^7.2.0"
 pytest-celery = "^0.0.0"
-pytest-lazy-fixture = "^0.6.3"
-pytest-cov = {extras = ["toml"], version = "^3.0.0"}
-pip = "^22.0.4"
+pytest-asyncio = "^0.20.3"
+pytest-cov = {extras = ["toml"], version = "^4.0.0"}
 redis = "^4.3.4"
-mkdocs = "^1.3.0"
-mkdocs-material = "^8.2.8"
-mike = "^1.1.2"
-coverage-conditional-plugin = "^0.5.0"
-black = {version = "^22.3.0", allow-prereleases = true}
-mkdocstrings = {version = "^0.18.1", extras = ["python"]}
 fakeredis = {extras = ["lua"], version = "^2.2.0"}
 
+
+[tool.poetry.group.docs]
+optional = true
+
+[tool.poetry.group.docs.dependencies]
+mkdocs = "*"
+mkdocs-material = "*"
+mike = "*"
+mkdocstrings = {version = "*", extras = ["python"]}
 
 
 
