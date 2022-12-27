@@ -2,6 +2,7 @@ from collections import abc
 from dataclasses import dataclass
 from functools import cached_property
 from operator import eq
+import sys
 from time import monotonic, monotonic_ns, sleep
 from unittest.mock import call
 from uuid import uuid4
@@ -89,6 +90,9 @@ class test_TaskMethod:
         val = res.get()
         assert val == a[0]
 
+    @pytest.mark.skipif(
+        not sys.platform.startswith("linux"), reason="Only passes on linux systems"
+    )
     @pytest.mark.parametrize("mode", ["apply", "delay"])
     def test_as_link_error(self, mode, obj: "SampleTaskMethods"):
         a, kw, mock = self.args, self.kwargs, obj.mock
