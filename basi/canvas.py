@@ -4,7 +4,7 @@ from functools import cached_property, partial
 from typing import TYPE_CHECKING, Any, Final, Generic, TypeVar, Union, cast, overload
 from uuid import uuid4
 
-from celery import states
+from celery import states, shared_task
 from celery.canvas import Signature, group
 
 # from celery.exceptions import TaskPredicate, Ignore, Retry, Reject
@@ -15,7 +15,6 @@ from kombu.utils.uuid import uuid
 from typing_extensions import ParamSpec, Self
 from vine import Thenable, promise
 
-from . import shared_task
 
 _P = ParamSpec("_P")
 _R = TypeVar("_R")

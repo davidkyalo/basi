@@ -16,14 +16,15 @@ __patch_typing()
 import os
 import typing as t
 from collections import abc
+from types import new_class
 from typing import TYPE_CHECKING, TypeVar, overload
 
 import celery
-from celery import current_task, current_app
+from celery import current_app, current_task, shared_task
 from celery.local import Proxy
 
 from ._common import import_string
-from .base import Bus, TaskMethod, Task
+from .base import Bus, Task, TaskClassMethod, TaskMethod
 from .serializers import SupportsPersistentPickle
 
 current_task: Task
@@ -66,9 +67,6 @@ bus: Bus = Proxy(get_current_app)
 app = bus
 
 
-shared_task = celery.shared_task
-
-
 class _MethodTaskProxy(Proxy):
     __slots__ = ()
 
@@ -76,17 +74,59 @@ class _MethodTaskProxy(Proxy):
         return self._get_current_object().__get__(obj, cls)
 
 
-def task_method(fn=None, /, *args, app: celery.Celery = None, base=TaskMethod, **options):
-    options["base"] = base or TaskMethod
-    xname = options.pop("name", None)
+def task_method(fn=None, /, *args, name: str=None, app: celery.Celery = None, bind: bool=False, base: type[celery.Task]=None, **options):
+    """Decorator to create a TaskMethod class out of any callable.
 
+        See :ref:`Task options<task-options>` for a list of the
+        arguments that can be passed to this decorator.
+        If `app` is not provided (the default), the returned task is created 
+        by calling `celery.shared_task()`. Otherwise `app.task()` will be called.
+
+        Examples:
+            .. code-block:: python
+
+                @task_method
+                def refresh_feed(url):
+                    store_feed(feedparser.parse(url))
+
+            with setting extra options:
+
+            .. code-block:: python
+
+                @task_method(exchange='feeds')
+                def refresh_feed(url):
+                    return store_feed(feedparser.parse(url))
+
+        Note:
+            App Binding: For custom apps the task decorator will return
+            a proxy object, so that the act of creating the task is not
+            performed until the task is used or the task registry is accessed.
+
+            If you're depending on binding to be deferred, then you must
+            not access any attributes on the returned object until the
+            application is fully set up (finalized).
+        """
+
+    options["base"] = base or TaskMethod
+    if base and not issubclass(base, TaskMethod):
+        options["base"] = new_class(base.__name__, (TaskMethod, base), None, lambda ns: ns.update(__module__=base.__module__))
+    if bind:
+        options['bind_task_instance'] = True
+        
     def decorator(func):
-        name = xname or f"{func.__module__}.{func.__qualname__}"
+        options["name"] = name or f"{func.__module__}.{func.__qualname__}"
         if app is None:
-            task = shared_task(func, *args, name=name, **options)
+            task = shared_task(func, *args, **options)
         else:
-            task = app.task(func, *args, name=name, **options)
+            task = app.task(func, *args, **options)
 
         return _MethodTaskProxy(lambda: task)
 
     return decorator if fn is None else decorator(fn)
+
+
+def task_class_method(*a, base: type[celery.Task]=None, **options):
+    options["base"] = base or TaskClassMethod
+    if base and not issubclass(base, TaskClassMethod):
+        options["base"] = new_class(base.__name__, (TaskClassMethod, base), None, lambda ns: ns.update(__module__=base.__module__),)
+    return task_method(*a, **options)

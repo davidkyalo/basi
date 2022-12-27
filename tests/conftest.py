@@ -1,13 +1,13 @@
 import asyncio
+import builtins
+import sys
+import typing as t
 from contextlib import suppress
 from inspect import isfunction
-import sys
 from weakref import ref
 
 import pytest
-import typing as t
 
-import builtins
 from basi.testing import TestError
 
 
@@ -102,9 +102,9 @@ def celery_config(celery_config):
 
     return {
         **celery_config,
+        "task_serializer": "pickle",
         "event_serializer": "pickle",
         "result_serializer": "pickle",
-        "task_serializer": "pickle",
         "accept_content": ["application/json", "application/x-python-serialize"],
         "task_annotations": {"*": {"trace": True}},
     }

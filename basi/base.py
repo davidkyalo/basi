@@ -2,7 +2,16 @@ from collections import ChainMap, abc
 from functools import cache, cached_property, wraps
 from logging import Logger
 from types import FunctionType, GenericAlias, MethodType
-from typing import TYPE_CHECKING, Any, Generic, Literal, Optional, TypeVar, Union, overload
+from typing import (
+    TYPE_CHECKING,
+    Any,
+    Generic,
+    Literal,
+    Optional,
+    TypeVar,
+    Union,
+    overload,
+)
 
 from celery import Celery
 from celery.app import pop_current_task, push_current_task
@@ -34,32 +43,32 @@ class Task(BaseTask, Generic[_T, _P, _R]):
     def logger(self):
         return get_task_logger(self.__module__)
 
-
 class TaskMethod(Task[_T, _P, _R]):
 
-    bind_task = None
+    bind_task_instance: bool = None
     method: staticmethod
-    typing: bool = False
+    # typing: bool = True
     attr_name: str = None
     BoundProxy: type["BoundMethodTaskProxy"] = None
+    self_key = '__self__'
 
-    def __init_subclass__(cls, **opts) -> None:
-        if "run" in cls.__dict__:
-            cls.bind_task = not isinstance(cls.__dict__["run"], staticmethod) or cls.bind_task
-            # cls.run = staticmethod(cls.run)
-            xrun = cls.run
+    # def __init_subclass__(cls, **opts) -> None:
+    #     if "run" in cls.__dict__:
+    #         cls.bind_task = not isinstance(cls.__dict__["run"], staticmethod) or cls.bind_task
+    #         # cls.run = staticmethod(cls.run)
+    #         xrun = cls.run
 
-            def run(self: TaskMethod, *args, **kwargs):
-                nonlocal xrun
-                args, kwargs = self.resolve_arguments(args, kwargs)
-                if self.bind_task:
-                    args = args[:1] + (self,) + args[1:]
-                return self.method(*args, **kwargs)
+    #         def run(self: TaskMethod, *args, **kwargs):
+    #             nonlocal xrun
+    #             args, kwargs = self.resolve_arguments(args, kwargs)
+    #             if self.bind_task:
+    #                 args = args[:1] + (self,) + args[1:]
+    #             return self.method(*args, **kwargs)
 
-            cls.run = run
-            cls.method = staticmethod(xrun)
+    #         cls.run = run
+    #         cls.method = staticmethod(xrun)
 
-        return super().__init_subclass__(**opts)
+    #     return super().__init_subclass__(**opts)
 
     def __get__(self, obj: _T, typ) -> Self:
         if obj is None:
@@ -69,49 +78,37 @@ class TaskMethod(Task[_T, _P, _R]):
     def get_bound_instance(self, obj):
         return self.BoundProxy(self, obj)
 
-    def resolve_arguments(self, /, args, kwargs):
-        __self__ = self.resolve_self(args, kwargs)
-        if not __self__ is _missing:
-            args = (__self__,) + args
+    def resolve_call_params(self, args: tuple, kwargs: dict, *, in_transit: bool=False):
+        this, bind = kwargs.pop(self.self_key, _missing), self.bind_task_instance
+        if not this is _missing:
+            if bind:
+                if in_transit:
+                    args = (this, f"<@BoundTask: {self.name!r} in transit>") + args
+                else:
+                    args = (this, self) + args
+            else:
+                args = (this,) + args
+        elif bind and not in_transit:
+            args = args[:1] + (self,) + args[2:]
+                
         return args, kwargs
 
-    def resolve_self(self, args: tuple, kwargs: dict):
-        return kwargs.pop("__self__", _missing)
+    # def resolve_self(self, args: tuple, kwargs: dict):
+    #     return kwargs.pop("__self__", _missing)
 
     def contribute_to_class(self, cls, name):
         setattr(cls, self.attr_name or name, self)
 
-    # def __call__(self: Self, *args, __self__=_missing, **kwargs):
-    #     if not __self__ is _missing:
-    #         if self.bind_task:
-    #             _args = __self__, self
-    #         else:
-    #             _args = (__self__,)
-    #     elif self.bind_task:
-    #         _args = (self,)
-    #     else:
-    #         _args = ()
-    #     pp()
-    #     return super().__call__(*_args, *args, **kwargs)
+    def __call__(self: Self, *args, **kwargs):
+        args, kwargs = self.resolve_call_params(args, kwargs)
+        return super().__call__(*args, **kwargs)
 
-    # def apply(self, args=(), kwargs: dict = None, *a, **kw):
-    #     if kwargs is None:
-    #         kwargs = {}
-    #     elif not (this := kwargs.pop("__self__", _missing)) is _missing:
-    #         args = (this,) + args
-    #     pp()
-    #     return super().apply(args, kwargs, *a, **kw)
-
-    # def apply_async(self, args=(), kwargs: dict = None, *a, **kw):
-    #     if kwargs is None:
-    #         kwargs = {}
-    #     elif not (this := kwargs.pop("__self__", _missing)) is _missing:
-    #         args = (this,) + args
-    #     pp()
-    #     return super().apply_async(args, kwargs, *a, **kw)
+    def apply_async(self, args=(), kwargs: dict=None, *a, **kw):
+        args, kwargs = self.resolve_call_params(args or (), kwargs or {}, in_transit=True)
+        return super().apply_async(args, kwargs, *a, **kw)
 
 
-class ClassMethodTask(TaskMethod[_T, _P, _R]):
+class TaskClassMethod(TaskMethod[_T, _P, _R]):
     def __get__(self, obj: Optional[_T], typ: type[_T]) -> Self:
         return self.get_bound_instance(typ if obj is None else obj.__class__)
 
@@ -123,7 +120,7 @@ class BoundMethodTaskProxy(
     __slots__ = ()
 
     def __init__(self, task: TaskMethod, obj: _T = _missing, /, **kwargs):
-        super().__init__(task, kwargs={"__self__": obj} | kwargs)
+        super().__init__(task, kwargs={task.self_key: obj} | kwargs)
 
     def _get_current_object(self) -> TaskMethod:
         return object.__getattribute__(self, "_Proxy__local")
@@ -229,6 +226,8 @@ class Bus(Celery):
         ...
 
     def __init__(self, *args, task_cls: type[str] = Task, **kwargs):
+        from warnings import warn
+        warn(f'`{self.__class__.__name__}()` is deprecated in favor of `Celery()`', DeprecationWarning, 1)
 
         if isinstance(task_cls, str):
             task_cls = import_string(task_cls)
@@ -319,13 +318,8 @@ class Bus(Celery):
         ...
 
     def method_task(
-        self,
-        fn: Optional[abc.Callable[Concatenate[_T, _P], _R]] = None,
-        /,
-        *args,
-        base=TaskMethod[_T, _P, _R],
-        get_bound_instance=None,
-        **opts,
+        self, *args,
+        **kwargs
     ):
         """Decorator to create a MethodTask class out of any callable.
 
@@ -356,19 +350,26 @@ class Bus(Celery):
             not access any attributes on the returned object until the
             application is fully set up (finalized).
         """
-        opts["base"] = base or TaskMethod
-        if get_bound_instance:
-            opts["get_bound_instance"] = get_bound_instance
+        from warnings import warn
 
-        def decorator(func: abc.Callable[_P, _R]) -> TaskMethod[_T, _P, _R]:
-            return self.task(*args, **{"name": f"{func.__module__}.{func.__qualname__}"} | opts)(
-                func
-            )
+        from . import task_method
+        
+        warn(f'`{self.__class__.__name__}.method_task()` is deprecated in favor of `task_method()`', DeprecationWarning, 1)
+        return task_method(*args, app=self, **kwargs)
 
-        if fn is None:
-            return decorator
-        else:
-            return decorator(fn)
+        # opts["base"] = base or TaskMethod
+        # if get_bound_instance:
+        #     opts["get_bound_instance"] = get_bound_instance
+
+        # def decorator(func: abc.Callable[_P, _R]) -> TaskMethod[_T, _P, _R]:
+        #     return self.task(*args, **{"name": f"{func.__module__}.{func.__qualname__}"} | opts)(
+        #         func
+        #     )
+
+        # if fn is None:
+        #     return decorator
+        # else:
+        #     return decorator(fn)
 
     @overload
     def class_method_task(
@@ -376,10 +377,10 @@ class Bus(Celery):
         fn: abc.Callable[Concatenate[type[_T], _P], _R],
         /,
         *args,
-        base=ClassMethodTask[_T, _P, _R],
+        base=TaskClassMethod[_T, _P, _R],
         get_bound_instance=None,
         **opts,
-    ) -> ClassMethodTask[_T, _P, _R]:
+    ) -> TaskClassMethod[_T, _P, _R]:
         ...
 
     @overload
@@ -388,20 +389,16 @@ class Bus(Celery):
         fn: None = None,
         /,
         *args,
-        base=ClassMethodTask[_T, _P, _R],
+        base=TaskClassMethod[_T, _P, _R],
         get_bound_instance=None,
         **opts,
-    ) -> abc.Callable[[abc.Callable[Concatenate[type[_T], _P], _R]], ClassMethodTask[_T, _P, _R]]:
+    ) -> abc.Callable[[abc.Callable[Concatenate[type[_T], _P], _R]], TaskClassMethod[_T, _P, _R]]:
         ...
 
     def class_method_task(
         self,
-        fn: Optional[abc.Callable[Concatenate[type[_T], _P], _R]] = None,
-        /,
         *args,
-        base=ClassMethodTask[_T, _P, _R],
-        get_bound_instance=None,
-        **opts,
+        **kwargs
     ):
         """Decorator to create a MethodTask class out of any callable.
 
@@ -432,21 +429,28 @@ class Bus(Celery):
             not access any attributes on the returned object until the
             application is fully set up (finalized).
         """
-        opts["base"] = base or ClassMethodTask
-        if get_bound_instance:
-            opts["get_bound_instance"] = get_bound_instance
+        from warnings import warn
 
-        def decorator(
-            func: abc.Callable[Concatenate[type[_T], _P], _R]
-        ) -> ClassMethodTask[_T, _P, _R]:
-            return self.task(*args, **{"name": f"{func.__module__}.{func.__qualname__}"} | opts)(
-                func
-            )
+        from . import task_class_method
+        
+        warn(f'`{self.__class__.__name__}.method_task()` is deprecated in favor of `task_method()`', DeprecationWarning, 1)
+        return task_class_method(*args, app=self, **kwargs)
 
-        if fn is None:
-            return decorator
-        else:
-            return decorator(fn)
+        # opts["base"] = base or ClassMethodTask
+        # if get_bound_instance:
+        #     opts["get_bound_instance"] = get_bound_instance
+
+        # def decorator(
+        #     func: abc.Callable[Concatenate[type[_T], _P], _R]
+        # ) -> ClassMethodTask[_T, _P, _R]:
+        #     return self.task(*args, **{"name": f"{func.__module__}.{func.__qualname__}"} | opts)(
+        #         func
+        #     )
+
+        # if fn is None:
+        #     return decorator
+        # else:
+        #     return decorator(fn)
 
 
 Celery = Bus
