@@ -41,10 +41,9 @@ optional = true
 [tool.poetry.group.test.dependencies]
 pytest = "^7.2.0"
 pytest-celery = "^0.0.0"
-pytest-asyncio = "^0.20.3"
-pytest-cov = {extras = ["toml"], version = "^4.0.0"}
+pytest-cov = {version = "^4.0.0", extras = ["toml"]}
 redis = "^4.3.4"
-fakeredis = {extras = ["lua"], version = "^2.2.0"}
+fakeredis = {version = "^2.2.0", extras = ["lua"]}
 
 
 [tool.poetry.group.docs]
