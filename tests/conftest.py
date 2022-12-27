@@ -14,13 +14,15 @@ from basi.testing import TestError
 def _pp(*lines, label=None, **kw):
     from pprint import pformat
 
-    fr = sys._getframe(1)
+    fr = None
+    with suppress(BaseException):
+        fr = sys._getframe(1)
     kw.setdefault("sort_dicts", False)
     kw.setdefault("indent", 2)
     kw.setdefault("depth", 8)
     ln = 100
     if not label:
-        with suppress():
+        with suppress(BaseException):
             label = fr.f_globals["__name__"]
             label = f"{label}::{getattr(fr.f_code, 'co_qualname',fr.f_code.co_name)}"
 
@@ -28,10 +30,10 @@ def _pp(*lines, label=None, **kw):
     print("-" * 120)
     print(f"{f' {label} ':-^120}")
 
-    for ln in lines or [fr.f_locals]:
+    for ln in lines or [getattr(fr, "f_locals", "")]:
         print(" ", pformat(ln, **kw).replace("\n", "\n  "))
     print("-" * 120)
-    with suppress():
+    with suppress(BaseException):
         print(f"{f' {fr.f_code.co_filename}:{fr.f_lineno} ':<120}")
     print("=" * 120)
 
