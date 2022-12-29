@@ -17,19 +17,26 @@ import os
 import typing as t
 from collections import abc
 from types import new_class
-from typing import TypeVar
 
 import celery
 from celery import current_app, current_task, shared_task
 from celery.local import Proxy
+from typing_extensions import Concatenate as Concat
+from typing_extensions import ParamSpec
 
 from ._common import import_string
-from .base import Bus, Task, TaskClassMethod, TaskMethod
+from .base import _P, _R, _T, Bus, Task, TaskClassMethod, TaskMethod
 from .serializers import SupportsPersistentPickle
 
 current_task: Task
 
-_T_Fn = TypeVar("_T_Fn", bound=abc.Callable)
+_T = t.TypeVar("_T")
+_R = t.TypeVar("_R")
+_P = ParamSpec("_P")
+
+
+_T_Fn = abc.Callable[_P, _R]
+
 
 
 DEFAULT_NAMESPACE = os.getenv("BASI_NAMESPACE", "CELERY")
@@ -73,6 +80,12 @@ class _MethodTaskProxy(Proxy):
     def __get__(self, obj, cls=None):
         return self._get_current_object().__get__(obj, cls)
 
+
+
+@t.overload
+def task_method(fn: _T_Fn[Concat[_T, _P], _R], /, *a, **kw) -> TaskMethod[_T, _P, _R]: ...
+@t.overload
+def task_method(**kw) -> _T_Fn[[_T_Fn[Concat[_T, _P], _R]], TaskMethod[_T, _P, _R]]: ...
 
 def task_method(fn=None, /, *args, name: str=None, app: celery.Celery = None, bind: bool=False, base: type[celery.Task]=None, **options):
     """Decorator to create a TaskMethod class out of any callable.
@@ -125,8 +138,17 @@ def task_method(fn=None, /, *args, name: str=None, app: celery.Celery = None, bi
     return decorator if fn is None else decorator(fn)
 
 
+
+
+@t.overload
+def task_class_method(fn: _T_Fn[Concat[type[_T], _P], _R], /, *a, **kw) -> TaskClassMethod[_T, _P, _R]: ...
+@t.overload
+def task_class_method(**kw) -> _T_Fn[[_T_Fn[Concat[type[_T], _P], _R]], TaskClassMethod[_T, _P, _R]]: ...
+
 def task_class_method(*a, base: type[celery.Task]=None, **options):
     options["base"] = base or TaskClassMethod
     if base and not issubclass(base, TaskClassMethod):
         options["base"] = new_class(base.__name__, (TaskClassMethod, base), None, lambda ns: ns.update(__module__=base.__module__),)
     return task_method(*a, **options)
+
+
