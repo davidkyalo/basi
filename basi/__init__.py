@@ -35,7 +35,7 @@ _R = t.TypeVar("_R")
 _P = ParamSpec("_P")
 
 
-_T_Fn = abc.Callable[_P, _R]
+_T_Fn = abc.Callable
 
 
 
